@@ -1,0 +1,704 @@
+// ============================================================================
+// CAREPASS Digital Health Platform - Prisma Schema
+// Database: Neon PostgreSQL (Cameroon)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Role {
+  patient
+  doctor
+  institution_admin
+  lab
+  insurance
+  super_admin
+}
+
+enum Gender {
+  M
+  F
+}
+
+enum InstitutionType {
+  hospital
+  clinic
+  laboratory
+  pharmacy
+  insurance
+}
+
+enum ConsultationType {
+  consultation
+  suivi
+  urgence
+}
+
+enum Severity {
+  legere
+  moderee
+  severe
+}
+
+enum ConsultationStatus {
+  en_cours
+  terminee
+  annulee
+}
+
+enum PrescriptionStatus {
+  active
+  completed
+  cancelled
+}
+
+enum LabCategory {
+  hematologie
+  biochimie
+  imagerie
+  microbiologie
+  autre
+}
+
+enum LabResultStatus {
+  pending
+  validated
+  rejected
+}
+
+enum VaccinationStatus {
+  done
+  scheduled
+  overdue
+}
+
+enum ConditionStatus {
+  active
+  resolved
+  managed
+}
+
+enum AccessRequestStatus {
+  pending
+  approved
+  denied
+}
+
+enum AppointmentStatus {
+  scheduled
+  confirmed
+  cancelled
+  completed
+}
+
+enum NotificationType {
+  info
+  warning
+  success
+  error
+}
+
+enum ClaimStatus {
+  pending
+  approved
+  rejected
+  paid
+}
+
+enum SubscriptionStatus {
+  active
+  expired
+  cancelled
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 1. User
+// ---------------------------------------------------------------------------
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  role            Role
+  firstName       String    @map("first_name")
+  lastName        String    @map("last_name")
+  phone           String?
+  avatarUrl       String?   @map("avatar_url")
+  isActive        Boolean   @default(true) @map("is_active")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patient              Patient?
+  doctor               Doctor?
+  notifications        Notification[]
+  subscriptions        Subscription[]
+  auditLogs            AuditLog[]
+  institutionAdmin     Institution?       @relation("InstitutionAdmin")
+  insuranceCompany     InsuranceCompany?
+  systemSettingsUpdated SystemSetting[]
+  labResultsUploaded   LabResult[]        @relation("UploadedBy")
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// 2. Patient
+// ---------------------------------------------------------------------------
+model Patient {
+  id             String    @id @default(uuid())
+  userId         String    @unique @map("user_id")
+  carepassId     String    @unique @map("carepass_id")
+  dateOfBirth    DateTime  @map("date_of_birth")
+  gender         Gender?
+  bloodGroup     String?   @map("blood_group")
+  genotype       String?
+  address        String?
+  city           String?
+  region         String?
+  emergencyToken String?   @unique @map("emergency_token")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consultations     Consultation[]
+  prescriptions     Prescription[]
+  labResults        LabResult[]
+  vaccinations      Vaccination[]
+  allergies         Allergy[]
+  medicalConditions MedicalCondition[]
+  children          Child[]
+  emergencyContacts EmergencyContact[]
+  accessGrants      AccessGrant[]
+  accessRequests    AccessRequest[]
+  appointments      Appointment[]
+  insuranceClaims   InsuranceClaim[]
+
+  @@index([carepassId])
+  @@index([userId])
+  @@map("patients")
+}
+
+// ---------------------------------------------------------------------------
+// 3. Doctor
+// ---------------------------------------------------------------------------
+model Doctor {
+  id            String    @id @default(uuid())
+  userId        String    @unique @map("user_id")
+  specialty     String
+  licenseNumber String    @unique @map("license_number")
+  institutionId String?   @map("institution_id")
+  bio           String?
+  city          String?
+  region        String?
+  isVerified    Boolean   @default(false) @map("is_verified")
+  verifiedAt    DateTime? @map("verified_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution    Institution?    @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  consultations  Consultation[]
+  prescriptions  Prescription[]
+  accessGrants   AccessGrant[]
+  accessRequests AccessRequest[]
+  appointments   Appointment[]
+
+  @@index([specialty])
+  @@index([city])
+  @@index([userId])
+  @@map("doctors")
+}
+
+// ---------------------------------------------------------------------------
+// 4. Institution
+// ---------------------------------------------------------------------------
+model Institution {
+  id                 String          @id @default(uuid())
+  name               String
+  type               InstitutionType
+  registrationNumber String?         @unique @map("registration_number")
+  address            String?
+  city               String?
+  region             String?
+  phone              String?
+  email              String?
+  logoUrl            String?         @map("logo_url")
+  isVerified         Boolean         @default(false) @map("is_verified")
+  adminUserId        String?         @unique @map("admin_user_id")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  admin      User?       @relation("InstitutionAdmin", fields: [adminUserId], references: [id], onDelete: SetNull)
+  doctors    Doctor[]
+  labResults LabResult[]
+
+  @@map("institutions")
+}
+
+// ---------------------------------------------------------------------------
+// 5. Consultation
+// ---------------------------------------------------------------------------
+model Consultation {
+  id         String             @id @default(uuid())
+  patientId  String             @map("patient_id")
+  doctorId   String             @map("doctor_id")
+  date       DateTime
+  type       ConsultationType   @default(consultation)
+  motif      String
+  symptoms   String?
+  diagnosis  String?
+  notes      String?
+  severity   Severity?
+  vitalSigns Json?              @map("vital_signs")
+  status     ConsultationStatus @default(en_cours)
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  patient         Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor          Doctor           @relation(fields: [doctorId], references: [id])
+  prescriptions   Prescription[]
+  insuranceClaims InsuranceClaim[]
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([date])
+  @@map("consultations")
+}
+
+// ---------------------------------------------------------------------------
+// 6. Prescription
+// ---------------------------------------------------------------------------
+model Prescription {
+  id             String             @id @default(uuid())
+  consultationId String             @map("consultation_id")
+  patientId      String             @map("patient_id")
+  doctorId       String             @map("doctor_id")
+  notes          String?
+  status         PrescriptionStatus @default(active)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  consultation Consultation     @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  patient      Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor       Doctor           @relation(fields: [doctorId], references: [id])
+  items        PrescriptionItem[]
+
+  @@index([consultationId])
+  @@index([patientId])
+  @@map("prescriptions")
+}
+
+// ---------------------------------------------------------------------------
+// 7. PrescriptionItem
+// ---------------------------------------------------------------------------
+model PrescriptionItem {
+  id             String  @id @default(uuid())
+  prescriptionId String  @map("prescription_id")
+  medication     String
+  dosage         String?
+  frequency      String?
+  duration       String?
+  instructions   String?
+
+  // Relations
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  @@map("prescription_items")
+}
+
+// ---------------------------------------------------------------------------
+// 8. LabResult
+// ---------------------------------------------------------------------------
+model LabResult {
+  id            String          @id @default(uuid())
+  patientId     String          @map("patient_id")
+  uploadedById  String          @map("uploaded_by_id")
+  institutionId String?         @map("institution_id")
+  title         String
+  category      LabCategory     @default(autre)
+  fileUrl       String          @map("file_url")
+  date          DateTime
+  notes         String?
+  status        LabResultStatus @default(pending)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  patient     Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy  User           @relation("UploadedBy", fields: [uploadedById], references: [id])
+  institution Institution?   @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  items       LabResultItem[]
+
+  @@index([patientId])
+  @@index([date])
+  @@map("lab_results")
+}
+
+// ---------------------------------------------------------------------------
+// 9. LabResultItem
+// ---------------------------------------------------------------------------
+model LabResultItem {
+  id             String  @id @default(uuid())
+  labResultId    String  @map("lab_result_id")
+  name           String
+  value          String
+  unit           String?
+  referenceRange String? @map("reference_range")
+  isAbnormal     Boolean @default(false) @map("is_abnormal")
+
+  // Relations
+  labResult LabResult @relation(fields: [labResultId], references: [id], onDelete: Cascade)
+
+  @@map("lab_result_items")
+}
+
+// ---------------------------------------------------------------------------
+// 10. Vaccination
+// ---------------------------------------------------------------------------
+model Vaccination {
+  id             String           @id @default(uuid())
+  patientId      String           @map("patient_id")
+  childId        String?          @map("child_id")
+  name           String
+  date           DateTime
+  boosterDate    DateTime?        @map("booster_date")
+  lot            String?
+  administeredBy String?          @map("administered_by")
+  location       String?
+  status         VaccinationStatus @default(done)
+  notes          String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  child   Child?  @relation(fields: [childId], references: [id], onDelete: SetNull)
+
+  @@index([patientId])
+  @@map("vaccinations")
+}
+
+// ---------------------------------------------------------------------------
+// 11. Allergy
+// ---------------------------------------------------------------------------
+model Allergy {
+  id         String    @id @default(uuid())
+  patientId  String    @map("patient_id")
+  name       String
+  severity   Severity?
+  reaction   String?
+  diagnosedAt DateTime? @map("diagnosed_at")
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("allergies")
+}
+
+// ---------------------------------------------------------------------------
+// 12. MedicalCondition
+// ---------------------------------------------------------------------------
+model MedicalCondition {
+  id          String          @id @default(uuid())
+  patientId   String          @map("patient_id")
+  name        String
+  diagnosedAt DateTime?       @map("diagnosed_at")
+  status      ConditionStatus @default(active)
+  treatment   String?
+  notes       String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("medical_conditions")
+}
+
+// ---------------------------------------------------------------------------
+// 13. Child
+// ---------------------------------------------------------------------------
+model Child {
+  id          String   @id @default(uuid())
+  parentId    String   @map("parent_id")
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  dateOfBirth DateTime @map("date_of_birth")
+  gender      Gender?
+  bloodGroup  String?  @map("blood_group")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parent       Patient       @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  vaccinations Vaccination[]
+
+  @@map("children")
+}
+
+// ---------------------------------------------------------------------------
+// 14. EmergencyContact
+// ---------------------------------------------------------------------------
+model EmergencyContact {
+  id           String   @id @default(uuid())
+  patientId    String   @map("patient_id")
+  name         String
+  relationship String?
+  phone        String
+  email        String?
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("emergency_contacts")
+}
+
+// ---------------------------------------------------------------------------
+// 15. AccessGrant
+// ---------------------------------------------------------------------------
+model AccessGrant {
+  id        String    @id @default(uuid())
+  patientId String    @map("patient_id")
+  doctorId  String    @map("doctor_id")
+  grantedAt DateTime  @default(now()) @map("granted_at")
+  expiresAt DateTime? @map("expires_at")
+  scope     String    @default("full")
+  isActive  Boolean   @default(true) @map("is_active")
+  revokedAt DateTime? @map("revoked_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, doctorId])
+  @@map("access_grants")
+}
+
+// ---------------------------------------------------------------------------
+// 16. AccessRequest
+// ---------------------------------------------------------------------------
+model AccessRequest {
+  id               String              @id @default(uuid())
+  doctorId         String              @map("doctor_id")
+  patientId        String              @map("patient_id")
+  patientCarepassId String             @map("patient_carepass_id")
+  reason           String?
+  status           AccessRequestStatus @default(pending)
+  requestedAt      DateTime            @default(now()) @map("requested_at")
+  respondedAt      DateTime?           @map("responded_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@index([patientId])
+  @@map("access_requests")
+}
+
+// ---------------------------------------------------------------------------
+// 17. Appointment
+// ---------------------------------------------------------------------------
+model Appointment {
+  id        String            @id @default(uuid())
+  patientId String            @map("patient_id")
+  doctorId  String            @map("doctor_id")
+  date      DateTime
+  duration  Int               @default(30)
+  type      String?
+  reason    String?
+  status    AppointmentStatus @default(scheduled)
+  notes     String?
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([date])
+  @@map("appointments")
+}
+
+// ---------------------------------------------------------------------------
+// 18. Notification
+// ---------------------------------------------------------------------------
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  title     String
+  message   String
+  type      NotificationType @default(info)
+  isRead    Boolean          @default(false) @map("is_read")
+  link      String?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// 19. InsuranceCompany
+// ---------------------------------------------------------------------------
+model InsuranceCompany {
+  id                 String   @id @default(uuid())
+  userId             String?  @unique @map("user_id")
+  name               String
+  registrationNumber String?  @unique @map("registration_number")
+  address            String?
+  city               String?
+  phone              String?
+  email              String?
+  logoUrl            String?  @map("logo_url")
+  isVerified         Boolean  @default(false) @map("is_verified")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user   User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  claims InsuranceClaim[]
+
+  @@map("insurance_companies")
+}
+
+// ---------------------------------------------------------------------------
+// 20. InsuranceClaim
+// ---------------------------------------------------------------------------
+model InsuranceClaim {
+  id                 String      @id @default(uuid())
+  insuranceCompanyId String      @map("insurance_company_id")
+  patientId          String      @map("patient_id")
+  consultationId     String?     @map("consultation_id")
+  amount             Decimal     @db.Decimal(12, 2)
+  description        String?
+  status             ClaimStatus @default(pending)
+  submittedAt        DateTime    @default(now()) @map("submitted_at")
+  processedAt        DateTime?   @map("processed_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  insuranceCompany InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
+  patient          Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  consultation     Consultation?    @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+
+  @@index([insuranceCompanyId])
+  @@index([patientId])
+  @@map("insurance_claims")
+}
+
+// ---------------------------------------------------------------------------
+// 21. Subscription
+// ---------------------------------------------------------------------------
+model Subscription {
+  id        String             @id @default(uuid())
+  userId    String             @map("user_id")
+  planId    String             @map("plan_id")
+  status    SubscriptionStatus @default(active)
+  startDate DateTime           @map("start_date")
+  endDate   DateTime           @map("end_date")
+  autoRenew Boolean            @default(true) @map("auto_renew")
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// 22. Plan
+// ---------------------------------------------------------------------------
+model Plan {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  priceMonthly Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly  Decimal? @map("price_yearly") @db.Decimal(10, 2)
+  features     Json?
+  maxPatients  Int?     @map("max_patients")
+  maxDoctors   Int?     @map("max_doctors")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+// ---------------------------------------------------------------------------
+// 23. AuditLog
+// ---------------------------------------------------------------------------
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  resource   String?
+  resourceId String?  @map("resource_id")
+  details    Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// 24. SystemSetting
+// ---------------------------------------------------------------------------
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @default(now()) @map("updated_at")
+
+  // Relations
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("system_settings")
+}
