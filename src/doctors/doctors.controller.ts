@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Patch,
   Param,
   Body,
@@ -18,6 +19,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { DoctorsService } from './doctors.service';
+import { DoctorSyncService } from './doctor-sync.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { DoctorFilterDto } from './dto/doctor-filter.dto';
@@ -32,7 +34,10 @@ import { PaginationQueryDto } from '../common/dto/pagination.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('doctors')
 export class DoctorsController {
-  constructor(private readonly doctorsService: DoctorsService) {}
+  constructor(
+    private readonly doctorsService: DoctorsService,
+    private readonly doctorSyncService: DoctorSyncService,
+  ) {}
 
   /**
    * GET /doctors
@@ -132,5 +137,52 @@ export class DoctorsController {
   @ApiResponse({ status: 404, description: 'Medecin non trouve' })
   async getStats(@Param('id') id: string) {
     return this.doctorsService.getStats(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // MULTI-INSTITUTION ENDPOINTS
+  // ---------------------------------------------------------------------------
+
+  @Get(':id/institutions')
+  @HttpCode(HttpStatus.OK)
+  async getDoctorInstitutions(@Param('id') id: string) {
+    return this.doctorsService.getDoctorInstitutions(id);
+  }
+
+  @Post(':id/institutions')
+  @HttpCode(HttpStatus.CREATED)
+  async addDoctorToInstitution(
+    @Param('id') id: string,
+    @Body() body: { institutionId: string; role?: string; isPrimary?: boolean },
+  ) {
+    return this.doctorsService.addDoctorToInstitution(id, body.institutionId, body.role, body.isPrimary);
+  }
+
+  @Delete(':id/institutions/:institutionId')
+  @HttpCode(HttpStatus.OK)
+  async removeDoctorFromInstitution(
+    @Param('id') id: string,
+    @Param('institutionId') institutionId: string,
+  ) {
+    return this.doctorsService.removeDoctorFromInstitution(id, institutionId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SYNC ENDPOINTS (multi-institution dashboard)
+  // ---------------------------------------------------------------------------
+
+  @Get(':id/sync/dashboard')
+  async getSyncedDashboard(@Param('id') id: string) {
+    return this.doctorSyncService.getSyncedDashboard(id);
+  }
+
+  @Get(':id/sync/consultations')
+  async getSyncedConsultations(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.doctorSyncService.getSyncedConsultations(id, limit ? parseInt(limit) : 50);
+  }
+
+  @Get(':id/sync/appointments')
+  async getSyncedAppointments(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.doctorSyncService.getSyncedAppointments(id, limit ? parseInt(limit) : 50);
   }
 }

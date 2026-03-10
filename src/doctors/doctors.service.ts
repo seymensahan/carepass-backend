@@ -419,4 +419,37 @@ export class DoctorsService {
       pendingRequests,
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // GET DOCTOR INSTITUTIONS (multi-institution support)
+  // ---------------------------------------------------------------------------
+  async getDoctorInstitutions(doctorId: string) {
+    return this.prisma.doctorInstitution.findMany({
+      where: { doctorId, isActive: true },
+      include: { institution: true },
+      orderBy: { isPrimary: 'desc' },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // ADD DOCTOR TO INSTITUTION
+  // ---------------------------------------------------------------------------
+  async addDoctorToInstitution(doctorId: string, institutionId: string, role = 'doctor', isPrimary = false) {
+    return this.prisma.doctorInstitution.upsert({
+      where: { doctorId_institutionId: { doctorId, institutionId } },
+      update: { isActive: true, role, isPrimary },
+      create: { doctorId, institutionId, role, isPrimary },
+      include: { institution: true },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // REMOVE DOCTOR FROM INSTITUTION
+  // ---------------------------------------------------------------------------
+  async removeDoctorFromInstitution(doctorId: string, institutionId: string) {
+    return this.prisma.doctorInstitution.update({
+      where: { doctorId_institutionId: { doctorId, institutionId } },
+      data: { isActive: false, endDate: new Date() },
+    });
+  }
 }

@@ -8,10 +8,14 @@ import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AppwriteService } from '../common/services/appwrite.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly appwriteService: AppwriteService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // GET PROFILE
@@ -35,6 +39,8 @@ export class UsersService {
           include: {
             allergies: true,
             medicalConditions: true,
+            emergencyContacts: true,
+            children: true,
           },
         },
         doctor: {
@@ -77,6 +83,7 @@ export class UsersService {
       throw new NotFoundException('Utilisateur non trouvé');
     }
 
+    // Update User table fields
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -95,6 +102,22 @@ export class UsersService {
         updatedAt: true,
       },
     });
+
+    // Update Patient table fields (gender, dateOfBirth, bloodGroup, genotype)
+    const hasPatientFields = dto.gender !== undefined || dto.dateOfBirth !== undefined
+      || dto.bloodGroup !== undefined || dto.genotype !== undefined;
+
+    if (user.role === Role.patient && hasPatientFields) {
+      await this.prisma.patient.updateMany({
+        where: { userId },
+        data: {
+          ...(dto.gender !== undefined && { gender: dto.gender as any }),
+          ...(dto.dateOfBirth !== undefined && { dateOfBirth: new Date(dto.dateOfBirth) }),
+          ...(dto.bloodGroup !== undefined && { bloodGroup: dto.bloodGroup || null }),
+          ...(dto.genotype !== undefined && { genotype: dto.genotype || null }),
+        },
+      });
+    }
 
     return {
       message: 'Profil mis à jour avec succès',
@@ -139,7 +162,7 @@ export class UsersService {
   // ---------------------------------------------------------------------------
   // UPLOAD AVATAR
   // ---------------------------------------------------------------------------
-  async uploadAvatar(userId: string, file: any) {
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -148,9 +171,24 @@ export class UsersService {
       throw new NotFoundException('Utilisateur non trouvé');
     }
 
-    // TODO: Upload file to Appwrite storage and get the URL
-    // For now, we store a placeholder URL
-    const avatarUrl = `/uploads/avatars/${userId}-${Date.now()}`;
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    // Validate file type
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Format de fichier non supporté. Utilisez JPEG, PNG, WebP ou GIF');
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new BadRequestException('Le fichier ne doit pas dépasser 5 Mo');
+    }
+
+    // Upload to Appwrite
+    const { url: avatarUrl } = await this.appwriteService.uploadFile(file, 'avatars');
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, Matches, IsEnum, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, Matches, IsEnum, IsOptional, IsIn, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 
@@ -31,4 +31,19 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({ example: 'M', enum: ['M', 'F'] })
+  @IsOptional()
+  @IsIn(['M', 'F'], { message: 'Le genre doit être M ou F' })
+  gender?: string;
+
+  @ApiPropertyOptional({ example: '1990-03-15' })
+  @IsOptional()
+  @IsDateString({}, { message: 'Format de date invalide (AAAA-MM-JJ)' })
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ example: 'O+' })
+  @IsOptional()
+  @IsString()
+  bloodGroup?: string;
 }
