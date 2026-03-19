@@ -50,7 +50,7 @@ export class AccessRequestsService {
       this.prisma.accessRequest.findMany({
         where,
         include: {
-          doctor: { include: { user: true } },
+          doctor: { include: { user: true, institution: true } },
           patient: { include: { user: true } },
         },
         orderBy: { requestedAt: 'desc' },
@@ -78,7 +78,7 @@ export class AccessRequestsService {
     const request = await this.prisma.accessRequest.findUnique({
       where: { id },
       include: {
-        doctor: { include: { user: true } },
+        doctor: { include: { user: true, institution: true } },
         patient: { include: { user: true } },
       },
     });
@@ -133,7 +133,7 @@ export class AccessRequestsService {
         reason: dto.reason,
       },
       include: {
-        doctor: { include: { user: true } },
+        doctor: { include: { user: true, institution: true } },
         patient: { include: { user: true } },
       },
     });
@@ -180,7 +180,7 @@ export class AccessRequestsService {
           respondedAt: new Date(),
         },
         include: {
-          doctor: { include: { user: true } },
+          doctor: { include: { user: true, institution: true } },
           patient: { include: { user: true } },
         },
       }),
@@ -246,7 +246,7 @@ export class AccessRequestsService {
           respondedAt: new Date(),
         },
         include: {
-          doctor: { include: { user: true } },
+          doctor: { include: { user: true, institution: true } },
           patient: { include: { user: true } },
         },
       }),

@@ -1,18 +1,15 @@
-import { IsEmail, IsString, MinLength, Matches, IsEnum, IsOptional, IsIn, IsDateString } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsEnum, IsOptional, IsIn, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { Role, InstitutionType } from '@prisma/client';
 
 export class RegisterDto {
   @ApiProperty({ example: 'user@carepass.cm' })
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'Password123!', minLength: 8 })
+  @ApiProperty({ example: 'motdepasse', minLength: 4 })
   @IsString()
-  @MinLength(8)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message: 'Le mot de passe doit contenir au moins 1 majuscule, 1 minuscule, 1 chiffre et 1 caractère spécial',
-  })
+  @MinLength(4, { message: 'Le mot de passe doit contenir au moins 4 caractères' })
   password: string;
 
   @ApiProperty({ enum: Role })
@@ -46,4 +43,41 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   bloodGroup?: string;
+
+  // ─── Institution fields (used when role = institution_admin) ───
+
+  @ApiPropertyOptional({ example: 'Clinique de la Cathédrale' })
+  @IsOptional()
+  @IsString()
+  institutionName?: string;
+
+  @ApiPropertyOptional({ enum: InstitutionType })
+  @IsOptional()
+  @IsEnum(InstitutionType)
+  institutionType?: InstitutionType;
+
+  @ApiPropertyOptional({ example: '123 Rue de la Liberté' })
+  @IsOptional()
+  @IsString()
+  institutionAddress?: string;
+
+  @ApiPropertyOptional({ example: 'Douala' })
+  @IsOptional()
+  @IsString()
+  institutionCity?: string;
+
+  @ApiPropertyOptional({ example: '+237 233 000 000' })
+  @IsOptional()
+  @IsString()
+  institutionPhone?: string;
+
+  @ApiPropertyOptional({ example: 'contact@clinique.cm' })
+  @IsOptional()
+  @IsString()
+  institutionEmail?: string;
+
+  @ApiPropertyOptional({ example: 'https://clinique.cm' })
+  @IsOptional()
+  @IsString()
+  institutionWebsite?: string;
 }

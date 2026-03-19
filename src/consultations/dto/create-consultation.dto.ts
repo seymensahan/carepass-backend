@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsObject,
   IsNumber,
+  IsArray,
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -42,6 +43,33 @@ class VitalSignsDto {
   @IsOptional()
   @IsNumber()
   oxygenSaturation?: number;
+}
+
+class PrescriptionItemDto {
+  @ApiProperty({ description: 'Nom du medicament' })
+  @IsString()
+  @IsNotEmpty()
+  medication: string;
+
+  @ApiPropertyOptional({ description: 'Dosage' })
+  @IsOptional()
+  @IsString()
+  dosage?: string;
+
+  @ApiPropertyOptional({ description: 'Frequence' })
+  @IsOptional()
+  @IsString()
+  frequency?: string;
+
+  @ApiPropertyOptional({ description: 'Duree du traitement' })
+  @IsOptional()
+  @IsString()
+  duration?: string;
+
+  @ApiPropertyOptional({ description: 'Notes' })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreateConsultationDto {
@@ -109,4 +137,23 @@ export class CreateConsultationDto {
   @IsOptional()
   @IsEnum(ConsultationStatus, { message: 'Le statut est invalide' })
   status?: ConsultationStatus;
+
+  @ApiPropertyOptional({
+    description: 'Liste des medicaments prescrits',
+    type: [PrescriptionItemDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PrescriptionItemDto)
+  prescriptions?: PrescriptionItemDto[];
+
+  @ApiPropertyOptional({
+    description: 'Liste des analyses labo demandees',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  labOrders?: string[];
 }

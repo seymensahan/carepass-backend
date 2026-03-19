@@ -10,8 +10,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { PrismaClient } from '@prisma/client';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AllergiesService } from './allergies.service';
 import { CreateAllergyDto } from './dto/create-allergy.dto';
 import { UpdateAllergyDto } from './dto/update-allergy.dto';
@@ -21,11 +23,18 @@ import { UpdateAllergyDto } from './dto/update-allergy.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('allergies')
 export class AllergiesController {
-  constructor(private readonly allergiesService: AllergiesService) {}
+  constructor(
+    private readonly allergiesService: AllergiesService,
+    private readonly prisma: PrismaClient,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les allergies d\'un patient' })
-  findAll(@Query('patientId') patientId: string) {
+  async findAll(@Query('patientId') patientId: string, @CurrentUser() user: any) {
+    if (!patientId && user.role === 'patient') {
+      const patient = await this.prisma.patient.findUnique({ where: { userId: user.id } });
+      if (patient) patientId = patient.id;
+    }
     return this.allergiesService.findAll(patientId);
   }
 
@@ -37,7 +46,11 @@ export class AllergiesController {
 
   @Post()
   @ApiOperation({ summary: 'Creer un enregistrement d\'allergie' })
-  create(@Body() dto: CreateAllergyDto) {
+  async create(@Body() dto: CreateAllergyDto, @CurrentUser() user: any) {
+    if (!dto.patientId && user.role === 'patient') {
+      const patient = await this.prisma.patient.findUnique({ where: { userId: user.id } });
+      if (patient) dto.patientId = patient.id;
+    }
     return this.allergiesService.create(dto);
   }
 

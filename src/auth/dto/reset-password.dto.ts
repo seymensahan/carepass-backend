@@ -8,7 +8,6 @@ export class ResetPasswordDto {
 
   @ApiProperty()
   @IsString()
-  @MinLength(8)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+  @MinLength(4, { message: 'Le mot de passe doit contenir au moins 4 caractères' })
   newPassword: string;
 }

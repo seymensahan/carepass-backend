@@ -8,10 +8,13 @@ import {
   Body,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFiles,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiConsumes } from '@nestjs/swagger';
 import { InstitutionsService } from './institutions.service';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
 import { UpdateInstitutionDto } from './dto/update-institution.dto';
@@ -132,6 +135,38 @@ export class InstitutionsController {
   @ApiResponse({ status: 404, description: 'Institution non trouvee' })
   getStats(@Param('id') id: string) {
     return this.institutionsService.getStats(id);
+  }
+
+  /**
+   * POST /institutions/:id/documents
+   * Upload des documents de vérification.
+   */
+  @Post(':id/documents')
+  @Roles('institution_admin', 'super_admin')
+  @UseInterceptors(FilesInterceptor('documents', 5))
+  @ApiConsumes('multipart/form-data')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Uploader des documents de vérification' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  @ApiResponse({ status: 201, description: 'Documents uploadés avec succès' })
+  uploadDocuments(
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    return this.institutionsService.uploadDocuments(id, files);
+  }
+
+  /**
+   * GET /institutions/:id/documents
+   * Lister les documents de vérification d'une institution.
+   */
+  @Get(':id/documents')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lister les documents de vérification' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  @ApiResponse({ status: 200, description: 'Liste des documents' })
+  getDocuments(@Param('id') id: string) {
+    return this.institutionsService.getDocuments(id);
   }
 
   /**

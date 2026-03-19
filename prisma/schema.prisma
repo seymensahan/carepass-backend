@@ -42,6 +42,8 @@ enum ConsultationType {
   consultation
   suivi
   urgence
+  bilan
+  specialiste
 }
 
 enum Severity {
@@ -141,6 +143,21 @@ enum PaymentStatus {
   refunded
 }
 
+enum HospitalisationStatus {
+  en_cours
+  terminee
+  transferee
+}
+
+enum MedicationRoute {
+  PO
+  IV
+  IM
+  SC
+  inhalation
+  topical
+}
+
 // ============================================================================
 // MODELS
 // ============================================================================
@@ -213,6 +230,7 @@ model Patient {
   insuranceClaims   InsuranceClaim[]
   menstrualCycles   MenstrualCycle[]
   pregnancies       Pregnancy[]
+  hospitalisations  Hospitalisation[]
 
   @@index([carepassId])
   @@index([userId])
@@ -241,10 +259,11 @@ model Doctor {
   institution    Institution?    @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   consultations  Consultation[]
   prescriptions  Prescription[]
-  accessGrants   AccessGrant[]
-  accessRequests AccessRequest[]
-  appointments   Appointment[]
-  institutions   DoctorInstitution[]
+  accessGrants     AccessGrant[]
+  accessRequests   AccessRequest[]
+  appointments     Appointment[]
+  institutions     DoctorInstitution[]
+  hospitalisations Hospitalisation[]
 
   @@index([specialty])
   @@index([city])
@@ -276,8 +295,30 @@ model Institution {
   doctors            Doctor[]
   doctorInstitutions DoctorInstitution[]
   labResults         LabResult[]
+  hospitalisations   Hospitalisation[]
+  documents          InstitutionDocument[]
 
   @@map("institutions")
+}
+
+// ---------------------------------------------------------------------------
+// 4c. InstitutionDocument (documents de vérification)
+// ---------------------------------------------------------------------------
+model InstitutionDocument {
+  id            String   @id @default(uuid())
+  institutionId String   @map("institution_id")
+  name          String
+  type          String   // autorisation_exercice, rccm, niu, autre
+  fileUrl       String   @map("file_url")
+  fileSize      Int?     @map("file_size")
+  mimeType      String?  @map("mime_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId])
+  @@map("institution_documents")
 }
 
 // ---------------------------------------------------------------------------
@@ -881,7 +922,101 @@ model Payment {
 }
 
 // ---------------------------------------------------------------------------
-// 30. SystemSetting
+// 30. Hospitalisation
+// ---------------------------------------------------------------------------
+model Hospitalisation {
+  id              String                @id @default(uuid())
+  patientId       String                @map("patient_id")
+  doctorId        String                @map("doctor_id")
+  institutionId   String?               @map("institution_id")
+  room            String?
+  bed             String?
+  admissionDate   DateTime              @map("admission_date")
+  dischargeDate   DateTime?             @map("discharge_date")
+  reason          String
+  diagnosis       String?
+  status          HospitalisationStatus @default(en_cours)
+  notes           String?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  // Relations
+  patient         Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor          Doctor                @relation(fields: [doctorId], references: [id])
+  institution     Institution?          @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  vitalSigns      HospitalisationVital[]
+  medications     HospitalisationMedication[]
+  evolutionNotes  EvolutionNote[]
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([status])
+  @@map("hospitalisations")
+}
+
+// ---------------------------------------------------------------------------
+// 31. HospitalisationVital
+// ---------------------------------------------------------------------------
+model HospitalisationVital {
+  id                String   @id @default(uuid())
+  hospitalisationId String   @map("hospitalisation_id")
+  temperature       Float?
+  systolic          Int?
+  diastolic         Int?
+  heartRate         Int?     @map("heart_rate")
+  spO2              Int?     @map("sp_o2")
+  glycemia          Float?
+  weight            Float?
+  nurseName         String?  @map("nurse_name")
+  notes             String?
+  recordedAt        DateTime @default(now()) @map("recorded_at")
+
+  // Relations
+  hospitalisation Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalisationId])
+  @@map("hospitalisation_vitals")
+}
+
+// ---------------------------------------------------------------------------
+// 32. HospitalisationMedication
+// ---------------------------------------------------------------------------
+model HospitalisationMedication {
+  id                String          @id @default(uuid())
+  hospitalisationId String          @map("hospitalisation_id")
+  medication        String
+  dosage            String?
+  route             MedicationRoute @default(PO)
+  administeredBy    String?         @map("administered_by")
+  notes             String?
+  administeredAt    DateTime        @default(now()) @map("administered_at")
+
+  // Relations
+  hospitalisation Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalisationId])
+  @@map("hospitalisation_medications")
+}
+
+// ---------------------------------------------------------------------------
+// 33. EvolutionNote
+// ---------------------------------------------------------------------------
+model EvolutionNote {
+  id                String   @id @default(uuid())
+  hospitalisationId String   @map("hospitalisation_id")
+  doctorName        String   @map("doctor_name")
+  content           String
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  // Relations
+  hospitalisation Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalisationId])
+  @@map("evolution_notes")
+}
+
+// ---------------------------------------------------------------------------
+// 34. SystemSetting
 // ---------------------------------------------------------------------------
 model SystemSetting {
   id          String   @id @default(uuid())

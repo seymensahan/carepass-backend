@@ -7,10 +7,14 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
 import { UpdateInstitutionDto } from './dto/update-institution.dto';
 import { InstitutionFilterDto } from './dto/institution-filter.dto';
+import { AppwriteService } from '../common/services/appwrite.service';
 
 @Injectable()
 export class InstitutionsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly appwriteService: AppwriteService,
+  ) {}
 
   /**
    * Liste paginee des institutions avec filtres.
@@ -280,6 +284,55 @@ export class InstitutionsService {
         consultationsThisMonth,
       },
     };
+  }
+
+  /**
+   * Uploader des documents de vérification pour une institution.
+   */
+  async uploadDocuments(id: string, files: Express.Multer.File[]) {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    if (!institution) {
+      throw new NotFoundException('Institution non trouvée');
+    }
+
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    const documents = [];
+    for (const file of files) {
+      const { fileId, url } = await this.appwriteService.uploadFile(file, 'institution-documents');
+      const doc = await this.prisma.institutionDocument.create({
+        data: {
+          institutionId: id,
+          name: file.originalname,
+          type: 'autorisation_exercice',
+          fileUrl: url,
+          fileSize: file.size,
+          mimeType: file.mimetype,
+        },
+      });
+      documents.push(doc);
+    }
+
+    return { success: true, data: documents };
+  }
+
+  /**
+   * Lister les documents de vérification d'une institution.
+   */
+  async getDocuments(id: string) {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    if (!institution) {
+      throw new NotFoundException('Institution non trouvée');
+    }
+
+    const documents = await this.prisma.institutionDocument.findMany({
+      where: { institutionId: id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { success: true, data: documents };
   }
 
   /**

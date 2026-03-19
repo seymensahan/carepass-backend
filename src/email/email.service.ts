@@ -12,11 +12,12 @@ export class EmailService {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     if (apiKey) {
       this.resend = new Resend(apiKey);
-      this.logger.log('Resend email service initialized');
+      this.logger.log('Resend email service initialized with API key: ' + apiKey.substring(0, 10) + '...');
     } else {
       this.logger.warn('RESEND_API_KEY not set — emails will be logged to console only');
     }
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'CAREPASS <noreply@carepass.cm>');
+    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'CAREPASS <onboarding@resend.dev>');
+    this.logger.log(`Email FROM address: ${this.fromEmail}`);
   }
 
   async sendPasswordResetEmail(to: string, firstName: string, resetToken: string): Promise<void> {
@@ -93,6 +94,7 @@ export class EmailService {
     }
 
     try {
+      this.logger.log(`Sending email to ${to} from ${this.fromEmail} | Subject: ${subject}`);
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
         to: [to],
@@ -102,12 +104,13 @@ export class EmailService {
 
       if (error) {
         this.logger.error(`Failed to send email to ${to}: ${JSON.stringify(error)}`);
+        this.logger.error(`Resend error details — name: ${(error as any).name}, message: ${(error as any).message}`);
         return;
       }
 
-      this.logger.log(`Email sent to ${to} — ID: ${data?.id}`);
+      this.logger.log(`Email sent successfully to ${to} — ID: ${data?.id}`);
     } catch (error) {
-      this.logger.error(`Email sending error: ${error}`);
+      this.logger.error(`Email sending exception: ${error instanceof Error ? error.message : error}`);
     }
   }
 }

@@ -9,10 +9,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Severity } from '@prisma/client';
 
 export class CreateAllergyDto {
-  @ApiProperty({ description: 'ID du patient' })
+  @ApiProperty({ description: 'ID du patient (auto-detecte pour les patients connectes)' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: "L'identifiant du patient est requis" })
-  patientId: string;
+  patientId?: string;
 
   @ApiProperty({ description: "Nom de l'allergene" })
   @IsString()

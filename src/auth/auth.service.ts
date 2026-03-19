@@ -72,6 +72,22 @@ export class AuthService {
       });
     }
 
+    // If role is institution_admin, create Institution linked to this user
+    if (dto.role === Role.institution_admin && dto.institutionName) {
+      await this.prisma.institution.create({
+        data: {
+          name: dto.institutionName,
+          type: dto.institutionType || 'clinic',
+          address: dto.institutionAddress,
+          city: dto.institutionCity,
+          phone: dto.institutionPhone,
+          email: dto.institutionEmail,
+          adminUserId: user.id,
+          isVerified: false,
+        },
+      });
+    }
+
     // Send email verification
     const verificationToken = uuidv4();
     const tokenHash = this.hashToken(verificationToken);

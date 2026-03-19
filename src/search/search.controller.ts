@@ -26,7 +26,7 @@ export class SearchController {
    * Recherche de patients (roles: doctor, institution_admin, super_admin).
    */
   @Get('patients')
-  @Roles('doctor', 'institution_admin', 'super_admin')
+  @Roles('doctor', 'institution_admin', 'super_admin', 'lab')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rechercher des patients (roles: doctor, institution_admin, super_admin)' })
   @ApiQuery({ name: 'q', required: true, description: 'Terme de recherche' })

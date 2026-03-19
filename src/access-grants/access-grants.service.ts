@@ -81,6 +81,33 @@ export class AccessGrantsService {
   }
 
   /**
+   * List all active access grants for a given doctor (their patients).
+   */
+  async findPatients(doctorId: string) {
+    const grants = await this.prisma.accessGrant.findMany({
+      where: { doctorId, isActive: true },
+      include: {
+        patient: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+            },
+          },
+        },
+      },
+      orderBy: { grantedAt: 'desc' },
+    });
+
+    return grants.map((grant) => ({
+      grantId: grant.id,
+      scope: grant.scope,
+      grantedAt: grant.grantedAt,
+      expiresAt: grant.expiresAt,
+      patient: grant.patient,
+    }));
+  }
+
+  /**
    * List doctors who currently have active access to this patient.
    * Returns doctor profiles with user info.
    */

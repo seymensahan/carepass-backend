@@ -23,6 +23,20 @@ export class AppointmentsService {
   };
 
   /**
+   * Resolve a patient identifier (CarePass ID like CP-2025-00001 or UUID) to a UUID.
+   */
+  private async resolvePatientId(patientId: string): Promise<string> {
+    if (patientId.startsWith('CP-')) {
+      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CarePass ID "${patientId}" non trouvé`);
+      return patient.id;
+    }
+    const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
+    if (!patient) throw new NotFoundException('Patient non trouvé');
+    return patient.id;
+  }
+
+  /**
    * List appointments with role-based filtering and pagination.
    */
   async findAll(filters: AppointmentFilterDto, user: any) {
@@ -140,13 +154,9 @@ export class AppointmentsService {
       if (!dto.patientId) {
         throw new BadRequestException('L\'identifiant du patient est requis');
       }
-      patientId = dto.patientId;
 
-      // Verify patient exists
-      const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
-      if (!patient) {
-        throw new NotFoundException('Patient non trouvé');
-      }
+      // Resolve CarePass ID (CP-2025-XXXXX) or UUID to actual patient UUID
+      patientId = await this.resolvePatientId(dto.patientId);
     } else if (role === 'patient') {
       const patient = await this.prisma.patient.findUnique({
         where: { userId },

@@ -48,6 +48,15 @@ export class AccessGrantsController {
     return this.accessGrantsService.findDoctors(patientId);
   }
 
+  @Get('patients')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Lister les patients auxquels le médecin a accès' })
+  async findPatients(@CurrentUser() user: any) {
+    const doctor = await this.prisma.doctor.findUnique({ where: { userId: user.id } });
+    if (!doctor) throw new NotFoundException('Profil médecin non trouvé');
+    return this.accessGrantsService.findPatients(doctor.id);
+  }
+
   @Get()
   @Roles('patient')
   @ApiOperation({ summary: 'Lister les accès actifs du patient' })

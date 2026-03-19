@@ -30,6 +30,7 @@ import { SettingsModule } from './settings/settings.module';
 import { MenstrualCycleModule } from './menstrual-cycle/menstrual-cycle.module';
 import { PregnancyModule } from './pregnancy/pregnancy.module';
 import { PaymentsModule } from './payments/payments.module';
+import { HospitalisationsModule } from './hospitalisations/hospitalisations.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { PaymentsModule } from './payments/payments.module';
     MenstrualCycleModule,
     PregnancyModule,
     PaymentsModule,
+    HospitalisationsModule,
   ],
 })
 export class AppModule {}

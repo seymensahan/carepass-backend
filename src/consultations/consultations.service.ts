@@ -145,6 +145,17 @@ export class ConsultationsService {
     return { success: true, data: consultation };
   }
 
+  private async resolvePatientId(patientId: string): Promise<string> {
+    if (patientId.startsWith('CP-')) {
+      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CarePass ID "${patientId}" non trouvé`);
+      return patient.id;
+    }
+    const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
+    if (!patient) throw new NotFoundException('Patient non trouvé');
+    return patient.id;
+  }
+
   /**
    * Create a new consultation.
    * Only doctors can create consultations.
@@ -156,17 +167,15 @@ export class ConsultationsService {
       throw new NotFoundException('Profil medecin non trouve');
     }
 
-    // Verify patient exists
-    const patient = await this.prisma.patient.findUnique({ where: { id: dto.patientId } });
-    if (!patient) {
-      throw new NotFoundException('Patient non trouve');
-    }
+    // Resolve patient ID (supports CarePass ID like CP-2025-00001)
+    const resolvedPatientId = await this.resolvePatientId(dto.patientId);
+    dto.patientId = resolvedPatientId;
 
     // Check doctor has access to this patient (via AccessGrant)
     const accessGrant = await this.prisma.accessGrant.findFirst({
       where: {
         doctorId,
-        patientId: dto.patientId,
+        patientId: resolvedPatientId,
         isActive: true,
         OR: [
           { expiresAt: null },
@@ -179,36 +188,69 @@ export class ConsultationsService {
       throw new ForbiddenException('Acces refuse : vous n\'avez pas l\'autorisation d\'acceder a ce patient');
     }
 
-    const consultation = await this.prisma.consultation.create({
-      data: {
-        patientId: dto.patientId,
-        doctorId,
-        date: new Date(dto.date),
-        type: dto.type,
-        motif: dto.motif,
-        symptoms: dto.symptoms,
-        diagnosis: dto.diagnosis,
-        notes: dto.notes,
-        severity: dto.severity,
-        vitalSigns: dto.vitalSigns ? (dto.vitalSigns as any) : undefined,
-        status: dto.status,
-      },
-      include: {
-        patient: {
-          include: {
-            user: {
-              select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+    const consultation = await this.prisma.$transaction(async (tx) => {
+      // Create the consultation
+      const consult = await tx.consultation.create({
+        data: {
+          patientId: dto.patientId,
+          doctorId,
+          date: new Date(dto.date),
+          type: dto.type,
+          motif: dto.motif,
+          symptoms: dto.symptoms,
+          diagnosis: dto.diagnosis,
+          notes: dto.notes,
+          severity: dto.severity,
+          vitalSigns: dto.vitalSigns ? (dto.vitalSigns as any) : undefined,
+          status: dto.status,
+        },
+      });
+
+      // Create prescription with items if provided
+      if (dto.prescriptions && dto.prescriptions.length > 0) {
+        const prescription = await tx.prescription.create({
+          data: {
+            consultationId: consult.id,
+            patientId: dto.patientId,
+            doctorId,
+          },
+        });
+
+        await tx.prescriptionItem.createMany({
+          data: dto.prescriptions.map((item) => ({
+            prescriptionId: prescription.id,
+            medication: item.medication,
+            dosage: item.dosage || null,
+            frequency: item.frequency || null,
+            duration: item.duration || null,
+            instructions: item.notes || null,
+          })),
+        });
+      }
+
+      // Return full consultation with relations
+      return tx.consultation.findUnique({
+        where: { id: consult.id },
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+              },
             },
           },
-        },
-        doctor: {
-          include: {
-            user: {
-              select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+          doctor: {
+            include: {
+              user: {
+                select: { id: true, firstName: true, lastName: true, email: true, avatarUrl: true },
+              },
             },
           },
+          prescriptions: {
+            include: { items: true },
+          },
         },
-      },
+      });
     });
 
     return { success: true, data: consultation };
