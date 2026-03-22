@@ -72,6 +72,18 @@ export class AuthService {
       });
     }
 
+    // If role is nurse, create Nurse profile linked to institution
+    if (dto.role === Role.nurse && dto.institutionId) {
+      await this.prisma.nurse.create({
+        data: {
+          userId: user.id,
+          institutionId: dto.institutionId,
+          specialty: dto.nurseSpecialty,
+          licenseNumber: dto.nurseLicenseNumber,
+        },
+      });
+    }
+
     // If role is institution_admin, create Institution linked to this user
     if (dto.role === Role.institution_admin && dto.institutionName) {
       await this.prisma.institution.create({

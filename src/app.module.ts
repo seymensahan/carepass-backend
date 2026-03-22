@@ -31,6 +31,7 @@ import { MenstrualCycleModule } from './menstrual-cycle/menstrual-cycle.module';
 import { PregnancyModule } from './pregnancy/pregnancy.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HospitalisationsModule } from './hospitalisations/hospitalisations.module';
+import { NursesModule } from './nurses/nurses.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { HospitalisationsModule } from './hospitalisations/hospitalisations.modu
     PregnancyModule,
     PaymentsModule,
     HospitalisationsModule,
+    NursesModule,
   ],
 })
 export class AppModule {}

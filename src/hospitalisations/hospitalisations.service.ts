@@ -9,6 +9,7 @@ import { UpdateHospitalisationDto } from './dto/update-hospitalisation.dto';
 import { AddVitalDto } from './dto/add-vital.dto';
 import { AddMedicationDto } from './dto/add-medication.dto';
 import { AddEvolutionNoteDto } from './dto/add-evolution-note.dto';
+import { CreateCarePlanItemDto } from './dto/create-care-plan-item.dto';
 
 @Injectable()
 export class HospitalisationsService {
@@ -208,5 +209,79 @@ export class HospitalisationsService {
       avgStayDays,
       totalCompleted: allHosp.length,
     };
+  }
+
+  // ─── Care Plan Items (Cahier de charges) ────────────────────────────────
+
+  async addCarePlanItem(hospitalisationId: string, dto: CreateCarePlanItemDto, user: any) {
+    await this.findOne(hospitalisationId, user); // verify doctor ownership
+    return this.prisma.carePlanItem.create({
+      data: {
+        hospitalisationId,
+        type: dto.type as any,
+        title: dto.title,
+        description: dto.description,
+        medication: dto.medication,
+        dosage: dto.dosage,
+        route: dto.route as any,
+        frequency: dto.frequency,
+        scheduledTimes: dto.scheduledTimes,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      },
+    });
+  }
+
+  async addCarePlanItems(hospitalisationId: string, items: CreateCarePlanItemDto[], user: any) {
+    await this.findOne(hospitalisationId, user);
+    const created = [];
+    for (const dto of items) {
+      const item = await this.prisma.carePlanItem.create({
+        data: {
+          hospitalisationId,
+          type: dto.type as any,
+          title: dto.title,
+          description: dto.description,
+          medication: dto.medication,
+          dosage: dto.dosage,
+          route: dto.route as any,
+          frequency: dto.frequency,
+          scheduledTimes: dto.scheduledTimes,
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        },
+      });
+      created.push(item);
+    }
+    return created;
+  }
+
+  async getCarePlanItems(hospitalisationId: string, user: any) {
+    await this.findOne(hospitalisationId, user);
+    return this.prisma.carePlanItem.findMany({
+      where: { hospitalisationId, isActive: true },
+      include: {
+        executions: {
+          orderBy: { executedAt: 'desc' },
+          include: {
+            nurse: { include: { user: { select: { firstName: true, lastName: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async deactivateCarePlanItem(itemId: string, user: any) {
+    const item = await this.prisma.carePlanItem.findUnique({
+      where: { id: itemId },
+      include: { hospitalisation: true },
+    });
+    if (!item) throw new NotFoundException('Tâche non trouvée');
+    const doctorId = await this.getDoctorId(user.id);
+    if (item.hospitalisation.doctorId !== doctorId) throw new ForbiddenException('Accès non autorisé');
+
+    return this.prisma.carePlanItem.update({
+      where: { id: itemId },
+      data: { isActive: false },
+    });
   }
 }

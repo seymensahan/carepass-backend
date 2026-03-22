@@ -16,6 +16,7 @@ import { UpdateHospitalisationDto } from './dto/update-hospitalisation.dto';
 import { AddVitalDto } from './dto/add-vital.dto';
 import { AddMedicationDto } from './dto/add-medication.dto';
 import { AddEvolutionNoteDto } from './dto/add-evolution-note.dto';
+import { CreateCarePlanItemDto } from './dto/create-care-plan-item.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -101,5 +102,37 @@ export class HospitalisationsController {
   @ApiOperation({ summary: 'Ajouter une note d\'évolution' })
   addEvolutionNote(@Param('id') id: string, @Body() dto: AddEvolutionNoteDto, @CurrentUser() user: any) {
     return this.service.addEvolutionNote(id, dto, user);
+  }
+
+  // ─── Care Plan (Cahier de charges) ──────────────────────────────────────
+
+  @Post(':id/care-plan')
+  @Roles('doctor')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Ajouter un item au cahier de charges' })
+  addCarePlanItem(@Param('id') id: string, @Body() dto: CreateCarePlanItemDto, @CurrentUser() user: any) {
+    return this.service.addCarePlanItem(id, dto, user);
+  }
+
+  @Post(':id/care-plan/batch')
+  @Roles('doctor')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Ajouter plusieurs items au cahier de charges' })
+  addCarePlanItems(@Param('id') id: string, @Body() items: CreateCarePlanItemDto[], @CurrentUser() user: any) {
+    return this.service.addCarePlanItems(id, items, user);
+  }
+
+  @Get(':id/care-plan')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Voir le cahier de charges' })
+  getCarePlanItems(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.getCarePlanItems(id, user);
+  }
+
+  @Patch('care-plan/:itemId/deactivate')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Désactiver un item du cahier de charges' })
+  deactivateCarePlanItem(@Param('itemId') itemId: string, @CurrentUser() user: any) {
+    return this.service.deactivateCarePlanItem(itemId, user);
   }
 }

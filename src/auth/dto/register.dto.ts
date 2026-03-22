@@ -44,6 +44,23 @@ export class RegisterDto {
   @IsString()
   bloodGroup?: string;
 
+  // ─── Nurse fields (used when role = nurse) ───
+
+  @ApiPropertyOptional({ description: 'Institution ID the nurse belongs to' })
+  @IsOptional()
+  @IsString()
+  institutionId?: string;
+
+  @ApiPropertyOptional({ example: 'Soins généraux' })
+  @IsOptional()
+  @IsString()
+  nurseSpecialty?: string;
+
+  @ApiPropertyOptional({ example: 'INF-2025-001' })
+  @IsOptional()
+  @IsString()
+  nurseLicenseNumber?: string;
+
   // ─── Institution fields (used when role = institution_admin) ───
 
   @ApiPropertyOptional({ example: 'Clinique de la Cathédrale' })

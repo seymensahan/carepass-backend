@@ -19,6 +19,7 @@ datasource db {
 enum Role {
   patient
   doctor
+  nurse
   institution_admin
   lab
   insurance
@@ -182,6 +183,7 @@ model User {
   // Relations
   patient              Patient?
   doctor               Doctor?
+  nurse                Nurse?
   notifications        Notification[]
   subscriptions        Subscription[]
   auditLogs            AuditLog[]
@@ -293,6 +295,7 @@ model Institution {
   // Relations
   admin              User?               @relation("InstitutionAdmin", fields: [adminUserId], references: [id], onDelete: SetNull)
   doctors            Doctor[]
+  nurses             Nurse[]
   doctorInstitutions DoctorInstitution[]
   labResults         LabResult[]
   hospitalisations   Hospitalisation[]
@@ -947,6 +950,7 @@ model Hospitalisation {
   vitalSigns      HospitalisationVital[]
   medications     HospitalisationMedication[]
   evolutionNotes  EvolutionNote[]
+  carePlanItems   CarePlanItem[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -967,12 +971,14 @@ model HospitalisationVital {
   spO2              Int?     @map("sp_o2")
   glycemia          Float?
   weight            Float?
+  nurseId           String?  @map("nurse_id")
   nurseName         String?  @map("nurse_name")
   notes             String?
   recordedAt        DateTime @default(now()) @map("recorded_at")
 
   // Relations
   hospitalisation Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+  nurse           Nurse?          @relation(fields: [nurseId], references: [id], onDelete: SetNull)
 
   @@index([hospitalisationId])
   @@map("hospitalisation_vitals")
@@ -987,12 +993,14 @@ model HospitalisationMedication {
   medication        String
   dosage            String?
   route             MedicationRoute @default(PO)
+  nurseId           String?         @map("nurse_id")
   administeredBy    String?         @map("administered_by")
   notes             String?
   administeredAt    DateTime        @default(now()) @map("administered_at")
 
   // Relations
   hospitalisation Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+  nurse           Nurse?          @relation(fields: [nurseId], references: [id], onDelete: SetNull)
 
   @@index([hospitalisationId])
   @@map("hospitalisation_medications")
@@ -1016,7 +1024,92 @@ model EvolutionNote {
 }
 
 // ---------------------------------------------------------------------------
-// 34. SystemSetting
+// 34. Nurse
+// ---------------------------------------------------------------------------
+model Nurse {
+  id            String    @id @default(uuid())
+  userId        String    @unique @map("user_id")
+  institutionId String    @map("institution_id")
+  specialty     String?   // ex: "soins généraux", "pédiatrie", "urgences"
+  licenseNumber String?   @map("license_number")
+  isVerified    Boolean   @default(false) @map("is_verified")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution         Institution               @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  vitalsRecorded      HospitalisationVital[]
+  medicationsGiven    HospitalisationMedication[]
+  carePlanExecutions  CarePlanExecution[]
+
+  @@index([institutionId])
+  @@index([userId])
+  @@map("nurses")
+}
+
+// ---------------------------------------------------------------------------
+// 35. CarePlanItem — Cahier de charges : tâches prescrites par le médecin
+// ---------------------------------------------------------------------------
+enum CarePlanItemType {
+  medication   // Administrer un médicament
+  vital_check  // Prendre les paramètres vitaux
+  care_task    // Soin infirmier (ex: changement pansement, toilette)
+}
+
+model CarePlanItem {
+  id                String           @id @default(uuid())
+  hospitalisationId String           @map("hospitalisation_id")
+  type              CarePlanItemType
+  title             String           // ex: "Paracétamol 1g", "Prise de tension"
+  description       String?          // Instructions détaillées
+  medication        String?          // Nom du médicament (si type = medication)
+  dosage            String?          // ex: "500mg", "1g"
+  route             MedicationRoute? // PO, IV, IM...
+  frequency         String?          // ex: "3x/jour", "toutes les 8h"
+  scheduledTimes    String?          @map("scheduled_times") // ex: "08:00,14:00,20:00"
+  startDate         DateTime         @default(now()) @map("start_date")
+  endDate           DateTime?        @map("end_date")
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  hospitalisation Hospitalisation     @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+  executions      CarePlanExecution[]
+
+  @@index([hospitalisationId])
+  @@map("care_plan_items")
+}
+
+// ---------------------------------------------------------------------------
+// 36. CarePlanExecution — Exécution d'une tâche par l'infirmier(e)
+// ---------------------------------------------------------------------------
+model CarePlanExecution {
+  id             String   @id @default(uuid())
+  carePlanItemId String   @map("care_plan_item_id")
+  nurseId        String   @map("nurse_id")
+  executedAt     DateTime @default(now()) @map("executed_at")
+  notes          String?  // Observations de l'infirmier
+  // For vital checks, store recorded values
+  temperature    Float?
+  systolic       Int?
+  diastolic      Int?
+  heartRate      Int?     @map("heart_rate")
+  spO2           Int?     @map("sp_o2")
+  glycemia       Float?
+  weight         Float?
+
+  // Relations
+  carePlanItem CarePlanItem @relation(fields: [carePlanItemId], references: [id], onDelete: Cascade)
+  nurse        Nurse        @relation(fields: [nurseId], references: [id])
+
+  @@index([carePlanItemId])
+  @@index([nurseId])
+  @@map("care_plan_executions")
+}
+
+// ---------------------------------------------------------------------------
+// 37. SystemSetting
 // ---------------------------------------------------------------------------
 model SystemSetting {
   id          String   @id @default(uuid())
