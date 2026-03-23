@@ -226,8 +226,9 @@ export class InstitutionsService {
         take: limit,
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatarUrl: true },
+            select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatarUrl: true, isActive: true },
           },
+          _count: { select: { consultations: true } },
         },
       }),
       this.prisma.doctor.count({ where: { institutionId: id } }),

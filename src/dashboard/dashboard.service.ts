@@ -222,6 +222,58 @@ export class DashboardService {
       }),
     ]);
 
+    // Monthly activity for the last 6 months
+    const monthlyActivity: { month: string; consultations: number; patients: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      const [mConsult, mPatients] = await Promise.all([
+        this.prisma.consultation.count({
+          where: { doctorId: { in: doctorIds }, date: { gte: d, lt: end } },
+        }),
+        this.prisma.consultation.findMany({
+          where: { doctorId: { in: doctorIds }, date: { gte: d, lt: end } },
+          select: { patientId: true },
+          distinct: ['patientId'],
+        }).then(r => r.length),
+      ]);
+      monthlyActivity.push({
+        month: d.toLocaleDateString('fr-FR', { month: 'short' }),
+        consultations: mConsult,
+        patients: mPatients,
+      });
+    }
+
+    // Consultation types breakdown
+    const consultationTypes = await this.prisma.consultation.groupBy({
+      by: ['type'],
+      where: { doctorId: { in: doctorIds } },
+      _count: true,
+    });
+    const consultationsByType = consultationTypes.map((ct) => ({
+      type: ct.type,
+      count: ct._count,
+    }));
+
+    // Recent activity (last 10 consultations)
+    const recentConsultations = await this.prisma.consultation.findMany({
+      where: { doctorId: { in: doctorIds } },
+      orderBy: { date: 'desc' },
+      take: 10,
+      include: {
+        patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+        doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+
+    const recentActivity = recentConsultations.map((c) => ({
+      id: c.id,
+      type: 'consultation',
+      description: `Consultation ${c.type} — ${c.patient?.user?.firstName} ${c.patient?.user?.lastName}`,
+      doctor: c.doctor?.user ? `Dr. ${c.doctor.user.firstName} ${c.doctor.user.lastName}` : '',
+      date: c.date,
+    }));
+
     return {
       success: true,
       data: {
@@ -230,6 +282,9 @@ export class DashboardService {
         consultationsToday,
         consultationsThisMonth,
         pendingVerifications,
+        monthlyActivity,
+        consultationsByType,
+        recentActivity,
       },
     };
   }
