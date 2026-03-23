@@ -122,6 +122,19 @@ export class InstitutionsController {
   }
 
   /**
+   * GET /institutions/:id/nurses
+   * Liste des infirmiers d'une institution.
+   */
+  @Get(':id/nurses')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lister les infirmiers d\'une institution' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  @ApiResponse({ status: 200, description: 'Liste des infirmiers' })
+  findNurses(@Param('id') id: string) {
+    return this.institutionsService.findNurses(id);
+  }
+
+  /**
    * GET /institutions/:id/stats
    * Statistiques de l'institution. Role: institution_admin.
    */

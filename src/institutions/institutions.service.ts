@@ -246,6 +246,25 @@ export class InstitutionsService {
   }
 
   /**
+   * Liste des infirmiers d'une institution.
+   */
+  async findNurses(id: string) {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    if (!institution) throw new NotFoundException('Institution non trouvee');
+
+    const nurses = await this.prisma.nurse.findMany({
+      where: { institutionId: id },
+      include: {
+        user: {
+          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+        },
+      },
+    });
+
+    return { success: true, data: nurses };
+  }
+
+  /**
    * Statistiques de l'institution.
    */
   async getStats(id: string) {
