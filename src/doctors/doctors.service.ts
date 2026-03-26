@@ -188,6 +188,15 @@ export class DoctorsService {
       },
     });
 
+    // Auto-create DoctorInstitution entry for multi-institution support
+    if (dto.institutionId) {
+      await this.prisma.doctorInstitution.upsert({
+        where: { doctorId_institutionId: { doctorId: doctor.id, institutionId: dto.institutionId } },
+        create: { doctorId: doctor.id, institutionId: dto.institutionId, isPrimary: true, role: 'doctor', isActive: true },
+        update: {},
+      });
+    }
+
     return doctor;
   }
 
