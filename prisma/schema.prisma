@@ -977,7 +977,8 @@ model Hospitalisation {
   vitalSigns      HospitalisationVital[]
   medications     HospitalisationMedication[]
   evolutionNotes  EvolutionNote[]
-  carePlanItems   CarePlanItem[]
+  carePlanItems       CarePlanItem[]
+  nurseAssignments    HospitalisationNurseAssignment[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -1068,11 +1069,30 @@ model Nurse {
   institution         Institution               @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   vitalsRecorded      HospitalisationVital[]
   medicationsGiven    HospitalisationMedication[]
-  carePlanExecutions  CarePlanExecution[]
+  carePlanExecutions      CarePlanExecution[]
+  hospitalisationAssignments HospitalisationNurseAssignment[]
 
   @@index([institutionId])
   @@index([userId])
   @@map("nurses")
+}
+
+// ---------------------------------------------------------------------------
+// 34b. HospitalisationNurseAssignment — Assignation infirmier ↔ hospitalisation
+// ---------------------------------------------------------------------------
+model HospitalisationNurseAssignment {
+  id                String          @id @default(uuid())
+  hospitalisationId String          @map("hospitalisation_id")
+  nurseId           String          @map("nurse_id")
+  assignedAt        DateTime        @default(now()) @map("assigned_at")
+  assignedById      String?         @map("assigned_by_id")
+
+  hospitalisation   Hospitalisation @relation(fields: [hospitalisationId], references: [id], onDelete: Cascade)
+  nurse             Nurse           @relation(fields: [nurseId], references: [id], onDelete: Cascade)
+
+  @@unique([hospitalisationId, nurseId])
+  @@index([nurseId])
+  @@map("hospitalisation_nurse_assignments")
 }
 
 // ---------------------------------------------------------------------------

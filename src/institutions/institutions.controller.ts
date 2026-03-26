@@ -249,4 +249,50 @@ export class InstitutionsController {
   remove(@Param('id') id: string) {
     return this.institutionsService.remove(id);
   }
+
+  // ─── Hospitalisation Nurse Assignment ───
+
+  /**
+   * GET /institutions/:id/hospitalisations
+   * List hospitalisations of the institution with assigned nurses.
+   */
+  @Get(':id/hospitalisations')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lister les hospitalisations de l\'institution' })
+  getHospitalisations(@Param('id') id: string, @Query('status') status?: string) {
+    return this.institutionsService.getHospitalisations(id, status);
+  }
+
+  /**
+   * POST /institutions/:id/hospitalisations/:hospId/assign-nurse
+   * Assign a nurse to a hospitalisation.
+   */
+  @Post(':id/hospitalisations/:hospId/assign-nurse')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Assigner un infirmier à une hospitalisation' })
+  assignNurse(
+    @Param('id') id: string,
+    @Param('hospId') hospId: string,
+    @Body() body: { nurseId: string },
+  ) {
+    return this.institutionsService.assignNurseToHospitalisation(id, hospId, body.nurseId);
+  }
+
+  /**
+   * DELETE /institutions/:id/hospitalisations/:hospId/unassign-nurse/:nurseId
+   * Remove a nurse assignment from a hospitalisation.
+   */
+  @Delete(':id/hospitalisations/:hospId/unassign-nurse/:nurseId')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Retirer un infirmier d\'une hospitalisation' })
+  unassignNurse(
+    @Param('id') id: string,
+    @Param('hospId') hospId: string,
+    @Param('nurseId') nurseId: string,
+  ) {
+    return this.institutionsService.unassignNurseFromHospitalisation(id, hospId, nurseId);
+  }
 }

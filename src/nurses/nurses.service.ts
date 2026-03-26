@@ -75,7 +75,11 @@ export class NursesService {
 
   async getInstitutionHospitalisations(userId: string, activeOnly = true) {
     const nurse = await this.getNurse(userId);
-    const where: any = { institutionId: nurse.institutionId };
+    // Only show hospitalisations explicitly assigned to this nurse
+    const where: any = {
+      institutionId: nurse.institutionId,
+      nurseAssignments: { some: { nurseId: nurse.id } },
+    };
     if (activeOnly) where.status = 'en_cours';
 
     return this.prisma.hospitalisation.findMany({

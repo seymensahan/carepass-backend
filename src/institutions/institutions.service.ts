@@ -470,4 +470,96 @@ export class InstitutionsService {
 
     return { success: true, data: null, message: 'Institution supprimee avec succes' };
   }
+
+  // ─── Hospitalisation Nurse Assignment ───
+
+  async getHospitalisations(institutionId: string, status?: string) {
+    const where: any = { institutionId };
+    if (status === 'en_cours' || status === 'terminee') {
+      where.status = status;
+    }
+
+    const hospitalisations = await this.prisma.hospitalisation.findMany({
+      where,
+      orderBy: { admissionDate: 'desc' },
+      include: {
+        patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+        doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+        nurseAssignments: {
+          include: {
+            nurse: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+          },
+        },
+        _count: { select: { carePlanItems: true } },
+      },
+    });
+
+    return {
+      success: true,
+      data: hospitalisations.map((h) => ({
+        id: h.id,
+        patientName: `${h.patient?.user?.firstName || ''} ${h.patient?.user?.lastName || ''}`.trim(),
+        doctorName: `Dr. ${h.doctor?.user?.firstName || ''} ${h.doctor?.user?.lastName || ''}`.trim(),
+        room: h.room,
+        bed: h.bed,
+        admissionDate: h.admissionDate,
+        dischargeDate: h.dischargeDate,
+        reason: h.reason,
+        status: h.status,
+        carePlanItemsCount: h._count.carePlanItems,
+        assignedNurses: h.nurseAssignments.map((a) => ({
+          id: a.nurse.id,
+          name: `${a.nurse.user.firstName} ${a.nurse.user.lastName}`.trim(),
+          assignedAt: a.assignedAt,
+        })),
+      })),
+    };
+  }
+
+  async assignNurseToHospitalisation(institutionId: string, hospitalisationId: string, nurseId: string) {
+    // Verify hospitalisation belongs to institution
+    const hosp = await this.prisma.hospitalisation.findFirst({
+      where: { id: hospitalisationId, institutionId },
+    });
+    if (!hosp) throw new NotFoundException('Hospitalisation non trouvée dans cette institution');
+
+    // Verify nurse belongs to institution
+    const nurse = await this.prisma.nurse.findFirst({
+      where: { id: nurseId, institutionId },
+    });
+    if (!nurse) throw new NotFoundException('Infirmier non trouvé dans cette institution');
+
+    const assignment = await this.prisma.hospitalisationNurseAssignment.upsert({
+      where: {
+        hospitalisationId_nurseId: { hospitalisationId, nurseId },
+      },
+      create: { hospitalisationId, nurseId },
+      update: {},
+      include: {
+        nurse: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        id: assignment.nurse.id,
+        name: `${assignment.nurse.user.firstName} ${assignment.nurse.user.lastName}`.trim(),
+        assignedAt: assignment.assignedAt,
+      },
+    };
+  }
+
+  async unassignNurseFromHospitalisation(institutionId: string, hospitalisationId: string, nurseId: string) {
+    const hosp = await this.prisma.hospitalisation.findFirst({
+      where: { id: hospitalisationId, institutionId },
+    });
+    if (!hosp) throw new NotFoundException('Hospitalisation non trouvée dans cette institution');
+
+    await this.prisma.hospitalisationNurseAssignment.deleteMany({
+      where: { hospitalisationId, nurseId },
+    });
+
+    return { success: true, message: 'Infirmier retiré de l\'hospitalisation' };
+  }
 }
