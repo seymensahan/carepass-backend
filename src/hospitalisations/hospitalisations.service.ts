@@ -37,11 +37,19 @@ export class HospitalisationsService {
   async create(dto: CreateHospitalisationDto, user: any) {
     const doctorId = await this.getDoctorId(user.id);
     const resolvedPatientId = await this.resolvePatientId(dto.patientId);
+
+    // Auto-fill institutionId from doctor's institution if not provided
+    let institutionId = dto.institutionId || null;
+    if (!institutionId) {
+      const doctor = await this.prisma.doctor.findUnique({ where: { id: doctorId }, select: { institutionId: true } });
+      institutionId = doctor?.institutionId || null;
+    }
+
     return this.prisma.hospitalisation.create({
       data: {
         patientId: resolvedPatientId,
         doctorId,
-        institutionId: dto.institutionId,
+        institutionId,
         room: dto.room,
         bed: dto.bed,
         admissionDate: new Date(dto.admissionDate),

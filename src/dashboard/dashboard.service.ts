@@ -1,6 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+// Simple in-memory cache for dashboard data (TTL: 60 seconds)
+const cache = new Map<string, { data: any; expiresAt: number }>();
+function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const entry = cache.get(key);
+  if (entry && entry.expiresAt > Date.now()) return Promise.resolve(entry.data as T);
+  return fn().then((data) => {
+    cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+    return data;
+  });
+}
+
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaClient) {}
@@ -172,6 +183,10 @@ export class DashboardService {
    * Tableau de bord de l'institution.
    */
   async getInstitutionDashboard(userId: string) {
+    return cached(`inst-dashboard-${userId}`, 60_000, () => this._getInstitutionDashboard(userId));
+  }
+
+  private async _getInstitutionDashboard(userId: string) {
     const institution = await this.prisma.institution.findFirst({
       where: { adminUserId: userId },
     });
@@ -412,6 +427,10 @@ export class DashboardService {
    * Tableau de bord super admin.
    */
   async getAdminDashboard() {
+    return cached('admin-dashboard', 60_000, () => this._getAdminDashboard());
+  }
+
+  private async _getAdminDashboard() {
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
