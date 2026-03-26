@@ -268,7 +268,7 @@ export class InstitutionsService {
   /**
    * Statistiques de l'institution.
    */
-  async getStats(id: string) {
+  async getStats(id: string, period: string = '30d') {
     const institution = await this.prisma.institution.findUnique({ where: { id } });
 
     if (!institution) {
@@ -276,32 +276,123 @@ export class InstitutionsService {
     }
 
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const days = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 365;
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-    const [totalDoctors, totalLabResults, totalConsultations, consultationsThisMonth] =
-      await Promise.all([
-        this.prisma.doctor.count({ where: { institutionId: id } }),
-        this.prisma.labResult.count({ where: { institutionId: id } }),
-        this.prisma.consultation.count({
-          where: {
-            doctor: { institutionId: id },
-          },
-        }),
-        this.prisma.consultation.count({
-          where: {
-            doctor: { institutionId: id },
-            date: { gte: startOfMonth },
-          },
-        }),
-      ]);
+    const doctorIds = (await this.prisma.doctor.findMany({
+      where: { institutionId: id },
+      select: { id: true },
+    })).map(d => d.id);
+
+    // Basic counts
+    const [totalConsultations, totalPatients] = await Promise.all([
+      this.prisma.consultation.count({
+        where: { doctorId: { in: doctorIds }, date: { gte: startDate } },
+      }),
+      this.prisma.consultation.findMany({
+        where: { doctorId: { in: doctorIds }, date: { gte: startDate } },
+        select: { patientId: true },
+        distinct: ['patientId'],
+      }).then(r => r.length),
+    ]);
+
+    // Consultations over time (group by day)
+    const allConsultations = await this.prisma.consultation.findMany({
+      where: { doctorId: { in: doctorIds }, date: { gte: startDate } },
+      select: { date: true, type: true, diagnosis: true, patientId: true },
+    });
+
+    const byDate: Record<string, number> = {};
+    const byDiagnosis: Record<string, number> = {};
+    const byDayHour: Record<string, Record<number, number>> = {};
+    const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    for (const day of dayNames) byDayHour[day] = {};
+
+    for (const c of allConsultations) {
+      const d = new Date(c.date);
+      const dateKey = d.toISOString().slice(0, 10);
+      byDate[dateKey] = (byDate[dateKey] || 0) + 1;
+
+      if (c.diagnosis) {
+        byDiagnosis[c.diagnosis] = (byDiagnosis[c.diagnosis] || 0) + 1;
+      }
+
+      const dayName = dayNames[d.getDay()];
+      const hour = d.getHours();
+      byDayHour[dayName][hour] = (byDayHour[dayName][hour] || 0) + 1;
+    }
+
+    const consultationsOverTime = Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    const topDiagnoses = Object.entries(byDiagnosis)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([diagnosis, count]) => ({ diagnosis, count }));
+
+    const activityByDayHour = dayNames.map(day => ({
+      day,
+      hours: byDayHour[day],
+    }));
+
+    // Gender distribution
+    const patientIds = [...new Set(allConsultations.map(c => c.patientId))];
+    let genderDistribution: { gender: string; count: number }[] = [];
+    if (patientIds.length > 0) {
+      const patients = await this.prisma.patient.findMany({
+        where: { id: { in: patientIds } },
+        select: { gender: true },
+      });
+      const genderMap: Record<string, number> = {};
+      for (const p of patients) {
+        const g = p.gender || 'non_specifie';
+        genderMap[g] = (genderMap[g] || 0) + 1;
+      }
+      genderDistribution = Object.entries(genderMap).map(([gender, count]) => {
+        const labels: Record<string, string> = { male: 'Hommes', female: 'Femmes', other: 'Autre', non_specifie: 'Non spécifié' };
+        return { gender: labels[gender] || gender, count };
+      });
+    }
+
+    // Top doctors
+    const doctors = await this.prisma.doctor.findMany({
+      where: { institutionId: id },
+      include: {
+        user: { select: { firstName: true, lastName: true } },
+        _count: { select: { consultations: true } },
+      },
+    });
+    const topDoctors = doctors
+      .map(d => ({
+        name: `Dr. ${d.user.firstName} ${d.user.lastName}`,
+        specialty: d.specialty || 'Généraliste',
+        consultations: d._count.consultations,
+        patients: 0,
+        rating: 0,
+      }))
+      .sort((a, b) => b.consultations - a.consultations)
+      .slice(0, 10);
+
+    // Return rate: patients who had more than 1 consultation
+    const patientConsultCounts: Record<string, number> = {};
+    for (const c of allConsultations) {
+      patientConsultCounts[c.patientId] = (patientConsultCounts[c.patientId] || 0) + 1;
+    }
+    const returning = Object.values(patientConsultCounts).filter(c => c > 1).length;
+    const returnRate = totalPatients > 0 ? Math.round((returning / totalPatients) * 100) : 0;
 
     return {
       success: true,
       data: {
-        totalDoctors,
         totalConsultations,
-        totalLabResults,
-        consultationsThisMonth,
+        totalPatients,
+        returnRate,
+        consultationsOverTime,
+        topDiagnoses,
+        activityByDayHour,
+        genderDistribution,
+        topDoctors,
       },
     };
   }

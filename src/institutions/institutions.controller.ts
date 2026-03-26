@@ -16,6 +16,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiConsumes } from '@nestjs/swagger';
 import { InstitutionsService } from './institutions.service';
+import { InvitationsService } from './invitations.service';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
 import { UpdateInstitutionDto } from './dto/update-institution.dto';
 import { InstitutionFilterDto } from './dto/institution-filter.dto';
@@ -29,7 +30,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('institutions')
 export class InstitutionsController {
-  constructor(private readonly institutionsService: InstitutionsService) {}
+  constructor(
+    private readonly institutionsService: InstitutionsService,
+    private readonly invitationsService: InvitationsService,
+  ) {}
 
   /**
    * GET /institutions
@@ -146,8 +150,8 @@ export class InstitutionsController {
   @ApiResponse({ status: 200, description: 'Statistiques de l\'institution' })
   @ApiResponse({ status: 403, description: 'Acces refuse' })
   @ApiResponse({ status: 404, description: 'Institution non trouvee' })
-  getStats(@Param('id') id: string) {
-    return this.institutionsService.getStats(id);
+  getStats(@Param('id') id: string, @Query('period') period?: string) {
+    return this.institutionsService.getStats(id, period || '30d');
   }
 
   /**
@@ -180,6 +184,53 @@ export class InstitutionsController {
   @ApiResponse({ status: 200, description: 'Liste des documents' })
   getDocuments(@Param('id') id: string) {
     return this.institutionsService.getDocuments(id);
+  }
+
+  // ─── Invitations ───
+
+  /**
+   * POST /institutions/:id/invitations
+   * Send an invitation to a doctor or nurse.
+   */
+  @Post(':id/invitations')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Envoyer une invitation par email' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  createInvitation(
+    @Param('id') id: string,
+    @Body() body: { email: string; role: 'doctor' | 'nurse'; message?: string },
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.invitationsService.createInvitation(id, user.id, body.email, body.role, body.message);
+  }
+
+  /**
+   * GET /institutions/:id/invitations
+   * List invitations for an institution.
+   */
+  @Get(':id/invitations')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lister les invitations' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  getInvitations(@Param('id') id: string) {
+    return this.invitationsService.getInvitations(id);
+  }
+
+  /**
+   * DELETE /institutions/:id/invitations/:invitationId
+   * Cancel a pending invitation.
+   */
+  @Delete(':id/invitations/:invitationId')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Annuler une invitation' })
+  cancelInvitation(
+    @Param('id') id: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.invitationsService.cancelInvitation(invitationId, id);
   }
 
   /**

@@ -86,6 +86,10 @@ export class EmailService {
     await this.send(to, 'Bienvenue sur CAREPASS !', html);
   }
 
+  async sendCustomEmail(to: string, subject: string, html: string): Promise<void> {
+    return this.send(to, subject, html);
+  }
+
   private async send(to: string, subject: string, html: string): Promise<void> {
     if (!this.resend) {
       this.logger.log(`[EMAIL MOCK] To: ${to} | Subject: ${subject}`);

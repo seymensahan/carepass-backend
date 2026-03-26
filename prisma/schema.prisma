@@ -194,6 +194,7 @@ model User {
   passwordResetTokens  PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   payments             Payment[]
+  sentInvitations      Invitation[]       @relation("InvitedByUser")
 
   @@map("users")
 }
@@ -300,6 +301,7 @@ model Institution {
   labResults         LabResult[]
   hospitalisations   Hospitalisation[]
   documents          InstitutionDocument[]
+  invitations        Invitation[]
 
   @@map("institutions")
 }
@@ -322,6 +324,31 @@ model InstitutionDocument {
 
   @@index([institutionId])
   @@map("institution_documents")
+}
+
+// ---------------------------------------------------------------------------
+// 4d. Invitation (email invitations for doctors/nurses)
+// ---------------------------------------------------------------------------
+model Invitation {
+  id            String   @id @default(uuid())
+  institutionId String   @map("institution_id")
+  email         String
+  role          Role     // doctor or nurse
+  token         String   @unique
+  message       String?
+  status        String   @default("pending") // pending, accepted, expired
+  invitedById   String   @map("invited_by_id")
+  expiresAt     DateTime @map("expires_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  invitedBy     User        @relation("InvitedByUser", fields: [invitedById], references: [id])
+
+  @@index([institutionId])
+  @@index([token])
+  @@index([email])
+  @@map("invitations")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, HttpCode, HttpStatus, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { InvitationsService } from '../institutions/invitations.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -13,7 +14,23 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly invitationsService: InvitationsService,
+  ) {}
+
+  /**
+   * GET /auth/validate-invitation?token=xxx
+   * Validate an invitation token. Public route.
+   */
+  @Get('validate-invitation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Valider un token d\'invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation valide' })
+  @ApiResponse({ status: 404, description: 'Invitation invalide ou expirée' })
+  async validateInvitation(@Query('token') token: string) {
+    return this.invitationsService.validateToken(token);
+  }
 
   /**
    * POST /auth/register
