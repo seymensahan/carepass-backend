@@ -218,6 +218,8 @@ export class InstitutionsService {
     }
 
     const skip = (page - 1) * limit;
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [data, total] = await Promise.all([
       this.prisma.doctor.findMany({
@@ -234,9 +236,26 @@ export class InstitutionsService {
       this.prisma.doctor.count({ where: { institutionId: id } }),
     ]);
 
+    // Enrich with patient count and consultations this month
+    const enriched = await Promise.all(
+      data.map(async (d) => {
+        const [uniquePatients, consultationsThisMonth] = await Promise.all([
+          this.prisma.consultation.findMany({
+            where: { doctorId: d.id },
+            select: { patientId: true },
+            distinct: ['patientId'],
+          }).then(r => r.length),
+          this.prisma.consultation.count({
+            where: { doctorId: d.id, date: { gte: firstDayOfMonth } },
+          }),
+        ]);
+        return { ...d, patientsCount: uniquePatients, consultationsThisMonth };
+      }),
+    );
+
     return {
       success: true,
-      data,
+      data: enriched,
       meta: {
         page,
         limit,
