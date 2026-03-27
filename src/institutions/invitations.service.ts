@@ -137,10 +137,57 @@ export class InvitationsService {
   async acceptInvitation(token: string, userId: string) {
     const invitation = await this.validateToken(token);
 
+    // Mark invitation as accepted
     await this.prisma.invitation.update({
       where: { id: invitation.id },
       data: { status: 'accepted' },
     });
+
+    // Create doctor/nurse profile if it doesn't exist for this user
+    const invitedRole = invitation.role as string;
+    const institutionId = invitation.institutionId;
+
+    if (invitedRole === 'doctor') {
+      const existing = await this.prisma.doctor.findUnique({ where: { userId } });
+      if (!existing) {
+        const doctor = await this.prisma.doctor.create({
+          data: { userId, institutionId },
+        });
+        // Also create DoctorInstitution entry
+        await this.prisma.doctorInstitution.upsert({
+          where: { doctorId_institutionId: { doctorId: doctor.id, institutionId } },
+          create: { doctorId: doctor.id, institutionId, isPrimary: true, role: 'doctor', isActive: true },
+          update: {},
+        });
+      } else {
+        // Doctor profile exists — add to this institution
+        if (existing.institutionId !== institutionId) {
+          await this.prisma.doctorInstitution.upsert({
+            where: { doctorId_institutionId: { doctorId: existing.id, institutionId } },
+            create: { doctorId: existing.id, institutionId, isPrimary: false, role: 'doctor', isActive: true },
+            update: { isActive: true },
+          });
+        }
+      }
+    } else if (invitedRole === 'nurse') {
+      const existing = await this.prisma.nurse.findUnique({ where: { userId } });
+      if (!existing) {
+        await this.prisma.nurse.create({
+          data: { userId, institutionId },
+        });
+      }
+    }
+
+    // Add new role to user's availableRoles
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (user) {
+      const roles = new Set(user.availableRoles?.length > 0 ? user.availableRoles : [user.role]);
+      roles.add(invitedRole as any);
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { availableRoles: [...roles] },
+      });
+    }
 
     return invitation;
   }

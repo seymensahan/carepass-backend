@@ -133,4 +133,19 @@ export class AuthController {
   async resendVerification(@CurrentUser('id') userId: string) {
     return this.authService.resendVerificationEmail(userId);
   }
+
+  /**
+   * POST /auth/switch-role
+   * Switch active role for a multi-role user.
+   */
+  @Post('switch-role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Changer de rôle actif' })
+  @ApiResponse({ status: 200, description: 'Rôle changé avec succès' })
+  @ApiResponse({ status: 401, description: 'Rôle non disponible' })
+  async switchRole(@CurrentUser('id') userId: string, @Body() body: { role: string }) {
+    return this.authService.switchRole(userId, body.role as any);
+  }
 }

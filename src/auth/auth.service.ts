@@ -46,12 +46,13 @@ export class AuthService {
     // Hash password
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    // Create user
+    // Create user with availableRoles initialized
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
         role: dto.role,
+        availableRoles: [dto.role],
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
@@ -178,12 +179,49 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
+        availableRoles: user.availableRoles?.length > 0 ? user.availableRoles : [user.role],
         firstName: user.firstName,
         lastName: user.lastName,
         phone: user.phone,
         gender: patient?.gender || null,
         dateOfBirth: patient?.dateOfBirth?.toISOString() || null,
         bloodGroup: patient?.bloodGroup || null,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // SWITCH ROLE
+  // ---------------------------------------------------------------------------
+  async switchRole(userId: string, newRole: Role) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Utilisateur non trouvé');
+
+    const available = user.availableRoles?.length > 0 ? user.availableRoles : [user.role];
+    if (!available.includes(newRole)) {
+      throw new UnauthorizedException(`Vous n'avez pas accès au rôle ${newRole}`);
+    }
+
+    // Update active role
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { role: newRole },
+    });
+
+    // Generate new tokens with the new role
+    const tokens = await this.generateTokens(userId, user.email, newRole);
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: newRole,
+        availableRoles: available,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
       },
     };
   }
