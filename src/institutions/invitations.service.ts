@@ -151,7 +151,7 @@ export class InvitationsService {
       const existing = await this.prisma.doctor.findUnique({ where: { userId } });
       if (!existing) {
         const doctor = await this.prisma.doctor.create({
-          data: { userId, institutionId },
+          data: { userId, institutionId, specialty: 'Médecine Générale', licenseNumber: `CM-DOC-${Date.now()}` },
         });
         // Also create DoctorInstitution entry
         await this.prisma.doctorInstitution.upsert({
