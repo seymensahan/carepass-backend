@@ -82,4 +82,10 @@ export class NursesController {
   ) {
     return this.service.getMyExecutions(user.id, days ? parseInt(days) : 7);
   }
+
+  @Get('pending-tasks')
+  @ApiOperation({ summary: 'Mes tâches en attente' })
+  getPendingTasks(@CurrentUser() user: any) {
+    return this.service.getPendingTasks(user.id);
+  }
 }

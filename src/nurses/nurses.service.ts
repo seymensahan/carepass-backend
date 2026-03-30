@@ -261,4 +261,47 @@ export class NursesService {
       orderBy: { executedAt: 'desc' },
     });
   }
+
+  async getPendingTasks(userId: string) {
+    const nurse = await this.getNurse(userId);
+
+    // Get all active care plan items for hospitalisations assigned to this nurse
+    // that have NOT been executed yet
+    const items = await this.prisma.carePlanItem.findMany({
+      where: {
+        isActive: true,
+        hospitalisation: {
+          status: 'en_cours',
+          institutionId: nurse.institutionId,
+          nurseAssignments: { some: { nurseId: nurse.id } },
+        },
+        executions: { none: {} },
+      },
+      include: {
+        hospitalisation: {
+          select: {
+            id: true,
+            room: true,
+            patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      type: item.type,
+      dosage: item.dosage,
+      frequency: item.frequency,
+      scheduledTimes: item.scheduledTimes,
+      hospitalisationId: item.hospitalisationId,
+      patientName: item.hospitalisation?.patient?.user
+        ? `${item.hospitalisation.patient.user.firstName} ${item.hospitalisation.patient.user.lastName}`
+        : '',
+      room: item.hospitalisation?.room || '',
+    }));
+  }
 }
