@@ -47,14 +47,20 @@ export class NursesService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Only count hospitalisations assigned to this nurse
+    const assignedFilter = {
+      institutionId: nurse.institutionId,
+      status: 'en_cours' as const,
+      nurseAssignments: { some: { nurseId: nurse.id } },
+    };
+
     const [activeHospitalisations, pendingTasks, completedToday] = await Promise.all([
-      this.prisma.hospitalisation.count({
-        where: { institutionId: nurse.institutionId, status: 'en_cours' },
-      }),
+      this.prisma.hospitalisation.count({ where: assignedFilter }),
       this.prisma.carePlanItem.count({
         where: {
-          hospitalisation: { institutionId: nurse.institutionId, status: 'en_cours' },
+          hospitalisation: assignedFilter,
           isActive: true,
+          executions: { none: {} },
         },
       }),
       this.prisma.carePlanExecution.count({

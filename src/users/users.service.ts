@@ -27,6 +27,7 @@ export class UsersService {
         id: true,
         email: true,
         role: true,
+        availableRoles: true,
         firstName: true,
         lastName: true,
         phone: true,
