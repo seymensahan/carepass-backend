@@ -4,7 +4,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class CreateAccessRequestDto {
   @ApiProperty({ description: 'Identifiant CarryPass du patient', example: 'CP-2026-00001' })
   @IsString()
-  patientCarrypassId: string;
+  patientCarepassId: string;
 
   @ApiPropertyOptional({ description: 'Motif de la demande d\'accès', example: 'Suivi médical régulier' })
   @IsOptional()

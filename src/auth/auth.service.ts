@@ -61,11 +61,11 @@ export class AuthService {
 
     // If role is patient, create Patient record with CarryPass ID
     if (dto.role === Role.patient) {
-      const carrypassId = await this.generateCarrypassId();
+      const carepassId = await this.generateCarepassId();
       await this.prisma.patient.create({
         data: {
           userId: user.id,
-          carrypassId,
+          carepassId,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : new Date('2000-01-01'),
           gender: dto.gender as any || undefined,
           bloodGroup: dto.bloodGroup || undefined,
@@ -439,18 +439,18 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private async generateCarrypassId(): Promise<string> {
+  private async generateCarepassId(): Promise<string> {
     const year = new Date().getFullYear();
     const result = await this.prisma.$transaction(async (tx) => {
       const setting = await tx.systemSetting.findUnique({
-        where: { key: 'carrypass_id_counter' },
+        where: { key: 'carepass_id_counter' },
       });
       const counter = parseInt(setting?.value || '0') + 1;
       await tx.systemSetting.upsert({
-        where: { key: 'carrypass_id_counter' },
+        where: { key: 'carepass_id_counter' },
         update: { value: counter.toString() },
         create: {
-          key: 'carrypass_id_counter',
+          key: 'carepass_id_counter',
           value: counter.toString(),
           description: 'Compteur CarryPass ID',
         },

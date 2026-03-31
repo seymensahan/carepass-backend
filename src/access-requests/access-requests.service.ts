@@ -105,7 +105,7 @@ export class AccessRequestsService {
 
     // Find patient by CarryPass ID
     const patient = await this.prisma.patient.findUnique({
-      where: { carrypassId: dto.patientCarrypassId },
+      where: { carepassId: dto.patientCarepassId },
     });
     if (!patient) {
       throw new NotFoundException('Patient non trouvé avec cet identifiant CarryPass');
@@ -129,7 +129,7 @@ export class AccessRequestsService {
       data: {
         doctorId: doctor.id,
         patientId: patient.id,
-        patientCarrypassId: dto.patientCarrypassId,
+        patientCarepassId: dto.patientCarepassId,
         reason: dto.reason,
       },
       include: {

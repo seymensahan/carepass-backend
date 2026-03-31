@@ -1,7 +1,7 @@
 import { PipeTransform, Injectable, BadRequestException } from '@nestjs/common';
 
 @Injectable()
-export class CarrypassIdPipe implements PipeTransform<string> {
+export class CarepassIdPipe implements PipeTransform<string> {
   transform(value: string): string {
     const regex = /^CP-\d{4}-\d{5}$/;
     if (!regex.test(value)) {

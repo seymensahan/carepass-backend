@@ -27,10 +27,10 @@ export class PatientsService {
     // Build base where clause
     const where: any = {};
 
-    // Search by name or carrypassId
+    // Search by name or carepassId
     if (search) {
       where.OR = [
-        { carrypassId: { contains: search, mode: 'insensitive' } },
+        { carepassId: { contains: search, mode: 'insensitive' } },
         { user: { firstName: { contains: search, mode: 'insensitive' } } },
         { user: { lastName: { contains: search, mode: 'insensitive' } } },
       ];
@@ -144,9 +144,9 @@ export class PatientsService {
   // ---------------------------------------------------------------------------
   // FIND BY CARRYPASS ID
   // ---------------------------------------------------------------------------
-  async findByCarrypassId(carrypassId: string) {
+  async findByCarepassId(carepassId: string) {
     const patient = await this.prisma.patient.findUnique({
-      where: { carrypassId },
+      where: { carepassId },
       include: {
         user: {
           select: {
@@ -181,7 +181,7 @@ export class PatientsService {
     }
 
     // Generate CarryPass ID using SystemSetting counter
-    const carrypassId = await this.generateCarrypassId();
+    const carepassId = await this.generateCarepassId();
 
     // Generate emergency token
     const emergencyToken = uuidv4();
@@ -189,7 +189,7 @@ export class PatientsService {
     const patient = await this.prisma.patient.create({
       data: {
         userId,
-        carrypassId,
+        carepassId,
         emergencyToken,
         dateOfBirth: new Date(dto.dateOfBirth),
         gender: dto.gender,
@@ -549,18 +549,18 @@ export class PatientsService {
    * Generate a unique CarryPass ID in the format CP-YYYY-XXXXX.
    * Uses a transactional counter stored in SystemSetting.
    */
-  private async generateCarrypassId(): Promise<string> {
+  private async generateCarepassId(): Promise<string> {
     const year = new Date().getFullYear();
     const result = await this.prisma.$transaction(async (tx) => {
       const setting = await tx.systemSetting.findUnique({
-        where: { key: 'carrypass_id_counter' },
+        where: { key: 'carepass_id_counter' },
       });
       const counter = parseInt(setting?.value || '0') + 1;
       await tx.systemSetting.upsert({
-        where: { key: 'carrypass_id_counter' },
+        where: { key: 'carepass_id_counter' },
         update: { value: counter.toString() },
         create: {
-          key: 'carrypass_id_counter',
+          key: 'carepass_id_counter',
           value: counter.toString(),
           description: 'Compteur CarryPass ID',
         },

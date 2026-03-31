@@ -30,7 +30,7 @@ export class SearchService {
   }
 
   /**
-   * Recherche de patients par nom, prenom, carrypassId, ville.
+   * Recherche de patients par nom, prenom, carepassId, ville.
    * Roles : doctor (avec acces), institution_admin, super_admin.
    */
   async searchPatients(query: string, limit: number, user: any) {
@@ -65,7 +65,7 @@ export class SearchService {
       OR: [
         { user: { firstName: { contains: query, mode: 'insensitive' } } },
         { user: { lastName: { contains: query, mode: 'insensitive' } } },
-        { carrypassId: { contains: query, mode: 'insensitive' } },
+        { carepassId: { contains: query, mode: 'insensitive' } },
         { city: { contains: query, mode: 'insensitive' } },
       ],
     };

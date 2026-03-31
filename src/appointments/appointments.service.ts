@@ -27,7 +27,7 @@ export class AppointmentsService {
    */
   private async resolvePatientId(patientId: string): Promise<string> {
     if (patientId.startsWith('CP-')) {
-      const patient = await this.prisma.patient.findUnique({ where: { carrypassId: patientId } });
+      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
       if (!patient) throw new NotFoundException(`Patient avec CarryPass ID "${patientId}" non trouvé`);
       return patient.id;
     }
