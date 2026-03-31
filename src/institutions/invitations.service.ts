@@ -218,9 +218,9 @@ export class InvitationsService {
   ) {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #0066CC;">CAREPASS — Invitation</h2>
+        <h2 style="color: #0066CC;">CARRYPASS — Invitation</h2>
         <p>Bonjour,</p>
-        <p>Vous avez été invité(e) à rejoindre <strong>${institutionName}</strong> en tant que <strong>${roleLabel}</strong> sur la plateforme CAREPASS.</p>
+        <p>Vous avez été invité(e) à rejoindre <strong>${institutionName}</strong> en tant que <strong>${roleLabel}</strong> sur la plateforme CARRYPASS.</p>
         ${message ? `<p style="background: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #007bff;">"${message}"</p>` : ''}
         <p>Cliquez sur le bouton ci-dessous pour créer votre compte et rejoindre l'institution :</p>
         <div style="text-align: center; margin: 30px 0;">
@@ -230,10 +230,10 @@ export class InvitationsService {
         </div>
         <p style="color: #6c757d; font-size: 13px;">Ce lien est valable <strong>7 jours</strong>. Après expiration, demandez à l'administrateur de vous renvoyer une invitation.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #888; font-size: 12px;">CAREPASS — Plateforme de santé numérique du Cameroun</p>
+        <p style="color: #888; font-size: 12px;">CARRYPASS — Plateforme de santé numérique</p>
       </div>
     `;
 
-    await this.emailService.sendCustomEmail(to, `Invitation à rejoindre ${institutionName} — CAREPASS`, html);
+    await this.emailService.sendCustomEmail(to, `Invitation à rejoindre ${institutionName} — CARRYPASS`, html);
   }
 }

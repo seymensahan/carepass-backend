@@ -27,10 +27,10 @@ export class PatientsService {
     // Build base where clause
     const where: any = {};
 
-    // Search by name or carepassId
+    // Search by name or carrypassId
     if (search) {
       where.OR = [
-        { carepassId: { contains: search, mode: 'insensitive' } },
+        { carrypassId: { contains: search, mode: 'insensitive' } },
         { user: { firstName: { contains: search, mode: 'insensitive' } } },
         { user: { lastName: { contains: search, mode: 'insensitive' } } },
       ];
@@ -142,11 +142,11 @@ export class PatientsService {
   }
 
   // ---------------------------------------------------------------------------
-  // FIND BY CAREPASS ID
+  // FIND BY CARRYPASS ID
   // ---------------------------------------------------------------------------
-  async findByCarepassId(carepassId: string) {
+  async findByCarrypassId(carrypassId: string) {
     const patient = await this.prisma.patient.findUnique({
-      where: { carepassId },
+      where: { carrypassId },
       include: {
         user: {
           select: {
@@ -162,7 +162,7 @@ export class PatientsService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient non trouve avec ce CarePass ID');
+      throw new NotFoundException('Patient non trouve avec ce CarryPass ID');
     }
 
     return patient;
@@ -180,8 +180,8 @@ export class PatientsService {
       throw new ConflictException('Un profil patient existe deja pour cet utilisateur');
     }
 
-    // Generate CarePass ID using SystemSetting counter
-    const carepassId = await this.generateCarepassId();
+    // Generate CarryPass ID using SystemSetting counter
+    const carrypassId = await this.generateCarrypassId();
 
     // Generate emergency token
     const emergencyToken = uuidv4();
@@ -189,7 +189,7 @@ export class PatientsService {
     const patient = await this.prisma.patient.create({
       data: {
         userId,
-        carepassId,
+        carrypassId,
         emergencyToken,
         dateOfBirth: new Date(dto.dateOfBirth),
         gender: dto.gender,
@@ -546,23 +546,23 @@ export class PatientsService {
   }
 
   /**
-   * Generate a unique CarePass ID in the format CP-YYYY-XXXXX.
+   * Generate a unique CarryPass ID in the format CP-YYYY-XXXXX.
    * Uses a transactional counter stored in SystemSetting.
    */
-  private async generateCarepassId(): Promise<string> {
+  private async generateCarrypassId(): Promise<string> {
     const year = new Date().getFullYear();
     const result = await this.prisma.$transaction(async (tx) => {
       const setting = await tx.systemSetting.findUnique({
-        where: { key: 'carepass_id_counter' },
+        where: { key: 'carrypass_id_counter' },
       });
       const counter = parseInt(setting?.value || '0') + 1;
       await tx.systemSetting.upsert({
-        where: { key: 'carepass_id_counter' },
+        where: { key: 'carrypass_id_counter' },
         update: { value: counter.toString() },
         create: {
-          key: 'carepass_id_counter',
+          key: 'carrypass_id_counter',
           value: counter.toString(),
-          description: 'Compteur CarePass ID',
+          description: 'Compteur CarryPass ID',
         },
       });
       return counter;

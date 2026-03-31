@@ -71,6 +71,29 @@ export class PaymentsController {
    * GET /payments/:id
    * Get a specific payment status.
    */
+  @Get('subscription')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Statut de l\'abonnement' })
+  @ApiResponse({ status: 200, description: 'Détails de l\'abonnement' })
+  getSubscription(@CurrentUser('id') userId: string) {
+    return this.paymentsService.getSubscriptionStatus(userId);
+  }
+
+  @Get(':id/poll')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vérifier le statut d\'un paiement (polling)' })
+  @ApiParam({ name: 'id', description: 'ID du paiement' })
+  pollPayment(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.paymentsService.pollPaymentStatus(id, userId);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

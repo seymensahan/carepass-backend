@@ -19,7 +19,7 @@ export class PatientFilterDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Recherche par nom ou CarePass ID' })
+  @ApiPropertyOptional({ description: 'Recherche par nom ou CarryPass ID' })
   @IsOptional()
   @IsString()
   search?: string;

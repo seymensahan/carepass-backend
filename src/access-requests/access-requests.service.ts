@@ -92,7 +92,7 @@ export class AccessRequestsService {
 
   /**
    * Create a new access request from a doctor to a patient.
-   * Looks up the patient by their CarePass ID.
+   * Looks up the patient by their CarryPass ID.
    */
   async create(doctorUserId: string, dto: CreateAccessRequestDto) {
     // Find doctor profile from user ID
@@ -103,12 +103,12 @@ export class AccessRequestsService {
       throw new NotFoundException('Profil médecin non trouvé');
     }
 
-    // Find patient by CarePass ID
+    // Find patient by CarryPass ID
     const patient = await this.prisma.patient.findUnique({
-      where: { carepassId: dto.patientCarepassId },
+      where: { carrypassId: dto.patientCarrypassId },
     });
     if (!patient) {
-      throw new NotFoundException('Patient non trouvé avec cet identifiant CarePass');
+      throw new NotFoundException('Patient non trouvé avec cet identifiant CarryPass');
     }
 
     // Check no pending request already exists for this doctor + patient
@@ -129,7 +129,7 @@ export class AccessRequestsService {
       data: {
         doctorId: doctor.id,
         patientId: patient.id,
-        patientCarepassId: dto.patientCarepassId,
+        patientCarrypassId: dto.patientCarrypassId,
         reason: dto.reason,
       },
       include: {

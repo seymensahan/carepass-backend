@@ -118,7 +118,7 @@ describe('AuthService', () => {
       });
       prisma.systemSetting.findUnique.mockResolvedValue({ value: '5' });
       prisma.systemSetting.upsert.mockResolvedValue({});
-      prisma.patient.create.mockResolvedValue({ id: 'patient-1', carepassId: 'CP-2026-00006' });
+      prisma.patient.create.mockResolvedValue({ id: 'patient-1', carrypassId: 'CP-2026-00006' });
       prisma.patient.findUnique.mockResolvedValue({ gender: null, dateOfBirth: null, bloodGroup: null });
       prisma.emailVerificationToken.create.mockResolvedValue({});
 

@@ -16,7 +16,7 @@ export class EmailService {
     } else {
       this.logger.warn('RESEND_API_KEY not set — emails will be logged to console only');
     }
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'CAREPASS <onboarding@resend.dev>');
+    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'CARRYPASS <onboarding@resend.dev>');
     this.logger.log(`Email FROM address: ${this.fromEmail}`);
   }
 
@@ -25,7 +25,7 @@ export class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #0066CC;">CAREPASS — Réinitialisation du mot de passe</h2>
+        <h2 style="color: #0066CC;">CARRYPASS — Réinitialisation du mot de passe</h2>
         <p>Bonjour ${firstName},</p>
         <p>Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour procéder :</p>
         <div style="text-align: center; margin: 30px 0;">
@@ -36,11 +36,11 @@ export class EmailService {
         <p>Ce lien expirera dans <strong>1 heure</strong>.</p>
         <p>Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #888; font-size: 12px;">CAREPASS — Plateforme de santé numérique</p>
+        <p style="color: #888; font-size: 12px;">CARRYPASS — Plateforme de santé numérique</p>
       </div>
     `;
 
-    await this.send(to, 'Réinitialisation de votre mot de passe — CAREPASS', html);
+    await this.send(to, 'Réinitialisation de votre mot de passe — CARRYPASS', html);
   }
 
   async sendEmailVerification(to: string, firstName: string, verificationToken: string): Promise<void> {
@@ -48,9 +48,9 @@ export class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #0066CC;">CAREPASS — Vérification de votre email</h2>
+        <h2 style="color: #0066CC;">CARRYPASS — Vérification de votre email</h2>
         <p>Bonjour ${firstName},</p>
-        <p>Bienvenue sur CAREPASS ! Veuillez confirmer votre adresse email en cliquant sur le bouton ci-dessous :</p>
+        <p>Bienvenue sur CARRYPASS ! Veuillez confirmer votre adresse email en cliquant sur le bouton ci-dessous :</p>
         <div style="text-align: center; margin: 30px 0;">
           <a href="${verifyUrl}" style="background-color: #0066CC; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: bold;">
             Vérifier mon email
@@ -58,19 +58,19 @@ export class EmailService {
         </div>
         <p>Ce lien expirera dans <strong>24 heures</strong>.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #888; font-size: 12px;">CAREPASS — Plateforme de santé numérique</p>
+        <p style="color: #888; font-size: 12px;">CARRYPASS — Plateforme de santé numérique</p>
       </div>
     `;
 
-    await this.send(to, 'Vérifiez votre email — CAREPASS', html);
+    await this.send(to, 'Vérifiez votre email — CARRYPASS', html);
   }
 
   async sendWelcomeEmail(to: string, firstName: string): Promise<void> {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #0066CC;">Bienvenue sur CAREPASS !</h2>
+        <h2 style="color: #0066CC;">Bienvenue sur CARRYPASS !</h2>
         <p>Bonjour ${firstName},</p>
-        <p>Votre compte CAREPASS a été créé avec succès. Vous pouvez maintenant :</p>
+        <p>Votre compte CARRYPASS a été créé avec succès. Vous pouvez maintenant :</p>
         <ul>
           <li>Gérer votre carnet de santé numérique</li>
           <li>Consulter vos résultats de laboratoire</li>
@@ -79,11 +79,11 @@ export class EmailService {
         </ul>
         <p>N'oubliez pas de compléter votre profil pour profiter de toutes les fonctionnalités.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-        <p style="color: #888; font-size: 12px;">CAREPASS — Plateforme de santé numérique</p>
+        <p style="color: #888; font-size: 12px;">CARRYPASS — Plateforme de santé numérique</p>
       </div>
     `;
 
-    await this.send(to, 'Bienvenue sur CAREPASS !', html);
+    await this.send(to, 'Bienvenue sur CARRYPASS !', html);
   }
 
   async sendCustomEmail(to: string, subject: string, html: string): Promise<void> {

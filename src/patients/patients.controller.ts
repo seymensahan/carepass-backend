@@ -25,7 +25,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { CarepassIdPipe } from '../common/pipes/validation.pipe';
+import { CarrypassIdPipe } from '../common/pipes/validation.pipe';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 
 @ApiTags('patients')
@@ -49,17 +49,17 @@ export class PatientsController {
   }
 
   /**
-   * GET /patients/carepass/:carepassId
-   * Get a patient by CarePass ID.
-   * IMPORTANT: This route MUST be before /:id to prevent "carepass" from being treated as an id.
+   * GET /patients/carrypass/:carrypassId
+   * Get a patient by CarryPass ID.
+   * IMPORTANT: This route MUST be before /:id to prevent "carrypass" from being treated as an id.
    */
-  @Get('carepass/:carepassId')
-  @ApiOperation({ summary: 'Rechercher un patient par CarePass ID' })
-  @ApiParam({ name: 'carepassId', description: 'CarePass ID (format: CP-YYYY-NNNNN)' })
+  @Get('carrypass/:carrypassId')
+  @ApiOperation({ summary: 'Rechercher un patient par CarryPass ID' })
+  @ApiParam({ name: 'carrypassId', description: 'CarryPass ID (format: CP-YYYY-NNNNN)' })
   @ApiResponse({ status: 200, description: 'Patient trouve' })
   @ApiResponse({ status: 404, description: 'Patient non trouve' })
-  async findByCarepassId(@Param('carepassId', CarepassIdPipe) carepassId: string) {
-    return this.patientsService.findByCarepassId(carepassId);
+  async findByCarrypassId(@Param('carrypassId', CarrypassIdPipe) carrypassId: string) {
+    return this.patientsService.findByCarrypassId(carrypassId);
   }
 
   /**

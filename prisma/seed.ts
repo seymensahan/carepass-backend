@@ -1,6 +1,6 @@
 // ============================================================================
 // CAREPASS Digital Health Platform - Database Seed
-// Generates realistic demo data for the Cameroon-based health platform
+// Generates realistic demo data for the digital health platform
 // ============================================================================
 
 import { PrismaClient } from '@prisma/client';
@@ -773,8 +773,8 @@ async function main() {
 
   const planGratuit = await prisma.plan.create({
     data: {
-      name: 'Gratuit',
-      slug: 'gratuit',
+      name: 'Basique',
+      slug: 'basique',
       description: 'Accès de base à la plateforme CarePass avec des fonctionnalités limitées.',
       priceMonthly: 0,
       priceYearly: null,
@@ -980,7 +980,7 @@ async function main() {
   console.log('  - 2 Appointments');
   console.log('  - 1 Insurance Company');
   console.log('  - 1 Insurance Claim');
-  console.log('  - 3 Plans (Gratuit, Standard, Premium)');
+  console.log('  - 3 Plans (Basique, Standard, Premium)');
   console.log('  - 1 Subscription');
   console.log('  - 3 Notifications');
   console.log('  - 4 System Settings');

@@ -80,12 +80,13 @@ export class PaymentsService {
             depositId: paymentId,
             amount: amount.toString(),
             currency: 'XAF',
-            correspondent: 'MTN_MOMO_CMR', // MTN Mobile Money Cameroon
+            correspondent: this.detectCorrespondent(dto.phoneNumber),
             payer: {
               type: 'MSISDN',
-              address: { value: dto.phoneNumber },
+              address: { value: this.normalizePhone(dto.phoneNumber) },
             },
-            statementDescription: `CAREPASS ${plan.name}`,
+            customerTimestamp: new Date().toISOString(),
+            statementDescription: `CARRYPASS ${plan.name}`.slice(0, 22).replace(/[^a-zA-Z0-9 ]/g, ''),
           }),
         });
 
@@ -275,5 +276,126 @@ export class PaymentsService {
       where: { id: paymentId },
       data: { subscriptionId: subscription.id },
     });
+  }
+
+  /**
+   * Detect MNO correspondent from phone number.
+   * Orange Cameroon: 237 69x
+   * MTN Cameroon: 237 65x/66x/67x/68x
+   */
+  private detectCorrespondent(phone: string): string {
+    const cleaned = phone.replace(/[^0-9]/g, '');
+    const normalized = cleaned.startsWith('237') ? cleaned : '237' + cleaned;
+    if (normalized.length >= 5 && normalized[3] === '6' && normalized[4] === '9') {
+      return 'ORANGE_CMR';
+    }
+    return 'MTN_MOMO_CMR';
+  }
+
+  /**
+   * Normalize phone to international format without +
+   */
+  private normalizePhone(phone: string): string {
+    let cleaned = phone.replace(/[^0-9]/g, '');
+    if (cleaned.startsWith('237') && cleaned.length >= 12) return cleaned;
+    if (cleaned.startsWith('6') && cleaned.length === 9) return '237' + cleaned;
+    return cleaned;
+  }
+
+  // ---------------------------------------------------------------------------
+  // CHECK SUBSCRIPTION STATUS
+  // ---------------------------------------------------------------------------
+  async getSubscriptionStatus(userId: string) {
+    const sub = await this.prisma.subscription.findFirst({
+      where: { userId },
+      include: { plan: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!sub) {
+      return { success: true, data: { hasSubscription: false, status: 'none' } };
+    }
+
+    const isActive = sub.status === 'active' && sub.endDate > new Date();
+    return {
+      success: true,
+      data: {
+        hasSubscription: true,
+        status: isActive ? 'active' : 'expired',
+        plan: sub.plan?.name,
+        planSlug: sub.plan?.slug,
+        endDate: sub.endDate,
+        daysRemaining: isActive ? Math.ceil((sub.endDate.getTime() - Date.now()) / 86400000) : 0,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // CHECK PAYMENT STATUS BY POLLING PAWAPAY
+  // ---------------------------------------------------------------------------
+  async pollPaymentStatus(paymentId: string, userId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, userId },
+    });
+    if (!payment) throw new NotFoundException('Paiement non trouvé');
+
+    if (payment.status === 'completed' || payment.status === 'failed') {
+      return { success: true, data: { status: payment.status, paidAt: payment.paidAt } };
+    }
+
+    // If PawaPay is configured, poll
+    if (this.pawapayApiKey && payment.externalId) {
+      try {
+        const response = await fetch(`${this.pawapayApiUrl}/deposits/${payment.externalId}`, {
+          headers: { Authorization: `Bearer ${this.pawapayApiKey}` },
+        });
+        const data = await response.json();
+        const deposit = Array.isArray(data) ? data[0] : data;
+
+        if (deposit?.status === 'COMPLETED') {
+          await this.prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: 'completed', paidAt: new Date() },
+          });
+          await this.activateSubscription(userId, payment.id);
+          return { success: true, data: { status: 'completed', paidAt: new Date() } };
+        }
+
+        if (deposit?.status === 'FAILED') {
+          const reason = deposit.failureReason?.failureCode || 'Payment failed';
+          await this.prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: 'failed', failureReason: reason },
+          });
+          return { success: true, data: { status: 'failed', failureReason: reason } };
+        }
+      } catch {
+        // Polling failed, return current status
+      }
+    }
+
+    return { success: true, data: { status: payment.status } };
+  }
+
+  // ---------------------------------------------------------------------------
+  // SEED DEFAULT PLANS (called on startup or first use)
+  // ---------------------------------------------------------------------------
+  async seedDefaultPlans() {
+    const defaults = [
+      { slug: 'patient', name: 'Patient CarryPass', priceMonthly: 84, priceYearly: 1000, description: 'Accès à la plateforme CarryPass' },
+      { slug: 'doctor_premium', name: 'Médecin Premium', priceMonthly: 2000, priceYearly: 20000, description: 'Synchronisation multi-institution' },
+      { slug: 'clinique', name: 'Cliniques & Petits Centres', priceMonthly: 4167, priceYearly: 50000, description: 'Gestion clinique complète' },
+      { slug: 'hopital_moyen', name: 'Hôpitaux Moyens', priceMonthly: 8334, priceYearly: 100000, description: 'Gestion hospitalière avancée' },
+      { slug: 'grand_hopital', name: 'Grands Hôpitaux', priceMonthly: 20834, priceYearly: 250000, description: 'Solution hôpital complète' },
+      { slug: 'laboratoire', name: 'Laboratoires', priceMonthly: 6250, priceYearly: 75000, description: 'Gestion de laboratoire' },
+    ];
+
+    for (const p of defaults) {
+      await this.prisma.plan.upsert({
+        where: { slug: p.slug },
+        create: { name: p.name, slug: p.slug, priceMonthly: p.priceMonthly, priceYearly: p.priceYearly, description: p.description },
+        update: { name: p.name, priceMonthly: p.priceMonthly, priceYearly: p.priceYearly },
+      });
+    }
   }
 }

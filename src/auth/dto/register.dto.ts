@@ -3,7 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Role, InstitutionType } from '@prisma/client';
 
 export class RegisterDto {
-  @ApiProperty({ example: 'user@carepass.cm' })
+  @ApiProperty({ example: 'user@carrypass.cm' })
   @IsEmail()
   email: string;
 

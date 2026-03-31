@@ -8,7 +8,7 @@ export class EmergencyService {
   /**
    * Recuperer les donnees d'urgence d'un patient par son token d'urgence.
    * Route publique — aucune authentification requise.
-   * Ne retourne PAS de donnees sensibles (pas d'adresse, pas d'email, pas de carepassId).
+   * Ne retourne PAS de donnees sensibles (pas d'adresse, pas d'email, pas de carrypassId).
    */
   async getEmergencyData(token: string) {
     const patient = await this.prisma.patient.findUnique({

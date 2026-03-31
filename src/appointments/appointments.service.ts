@@ -23,12 +23,12 @@ export class AppointmentsService {
   };
 
   /**
-   * Resolve a patient identifier (CarePass ID like CP-2025-00001 or UUID) to a UUID.
+   * Resolve a patient identifier (CarryPass ID like CP-2025-00001 or UUID) to a UUID.
    */
   private async resolvePatientId(patientId: string): Promise<string> {
     if (patientId.startsWith('CP-')) {
-      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
-      if (!patient) throw new NotFoundException(`Patient avec CarePass ID "${patientId}" non trouvé`);
+      const patient = await this.prisma.patient.findUnique({ where: { carrypassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CarryPass ID "${patientId}" non trouvé`);
       return patient.id;
     }
     const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
@@ -155,7 +155,7 @@ export class AppointmentsService {
         throw new BadRequestException('L\'identifiant du patient est requis');
       }
 
-      // Resolve CarePass ID (CP-2025-XXXXX) or UUID to actual patient UUID
+      // Resolve CarryPass ID (CP-2025-XXXXX) or UUID to actual patient UUID
       patientId = await this.resolvePatientId(dto.patientId);
     } else if (role === 'patient') {
       const patient = await this.prisma.patient.findUnique({

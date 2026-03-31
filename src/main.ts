@@ -33,8 +33,8 @@ async function bootstrap() {
 
   // Swagger documentation
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('CAREPASS API')
-    .setDescription('API de la plateforme de santé numérique CAREPASS')
+    .setTitle('CARRYPASS API')
+    .setDescription('API de la plateforme de santé numérique CARRYPASS')
     .setVersion('0.1.0')
     .addBearerAuth()
     .build();
@@ -43,7 +43,7 @@ async function bootstrap() {
 
   const port = config.get<number>('PORT', 8000);
   await app.listen(port);
-  console.log(`🚀 CAREPASS API running on http://localhost:${port}/api`);
+  console.log(`🚀 CARRYPASS API running on http://localhost:${port}/api`);
   console.log(`📚 Swagger docs at http://localhost:${port}/api/docs`);
 }
 

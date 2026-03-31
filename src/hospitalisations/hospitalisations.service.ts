@@ -22,10 +22,10 @@ export class HospitalisationsService {
   }
 
   private async resolvePatientId(patientId: string): Promise<string> {
-    // If it looks like a CarePass ID (e.g. CP-2025-00001), resolve to UUID
+    // If it looks like a CarryPass ID (e.g. CP-2025-00001), resolve to UUID
     if (patientId.startsWith('CP-')) {
-      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
-      if (!patient) throw new NotFoundException(`Patient avec CarePass ID "${patientId}" non trouvé`);
+      const patient = await this.prisma.patient.findUnique({ where: { carrypassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CarryPass ID "${patientId}" non trouvé`);
       return patient.id;
     }
     // Otherwise try as UUID directly

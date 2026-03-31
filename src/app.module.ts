@@ -50,13 +50,13 @@ import { NursesModule } from './nurses/nurses.module';
 
         // Optional — services degrade gracefully if not set
         RESEND_API_KEY: Joi.string().optional().allow(''),
-        EMAIL_FROM: Joi.string().default('CAREPASS <noreply@carepass.cm>'),
+        EMAIL_FROM: Joi.string().default('CARRYPASS <noreply@carrypass.cm>'),
         FRONTEND_URL: Joi.string().default('http://localhost:3000'),
 
         APPWRITE_ENDPOINT: Joi.string().optional().allow(''),
         APPWRITE_PROJECT_ID: Joi.string().optional().allow(''),
         APPWRITE_API_KEY: Joi.string().optional().allow(''),
-        APPWRITE_BUCKET_ID: Joi.string().default('carepass-files'),
+        APPWRITE_BUCKET_ID: Joi.string().default('carrypass-files'),
 
         PAWAPAY_API_URL: Joi.string().default('https://api.sandbox.pawapay.io'),
         PAWAPAY_API_KEY: Joi.string().optional().allow(''),
