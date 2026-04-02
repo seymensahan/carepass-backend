@@ -9,10 +9,14 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { AppointmentFilterDto } from './dto/appointment-filter.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly emailService: EmailService,
+  ) {}
 
   /**
    * Valid status transitions for appointments.
@@ -23,12 +27,12 @@ export class AppointmentsService {
   };
 
   /**
-   * Resolve a patient identifier (CarryPass ID like CP-2025-00001 or UUID) to a UUID.
+   * Resolve a patient identifier (CaryPass ID like CP-2025-00001 or UUID) to a UUID.
    */
   private async resolvePatientId(patientId: string): Promise<string> {
     if (patientId.startsWith('CP-')) {
-      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
-      if (!patient) throw new NotFoundException(`Patient avec CarryPass ID "${patientId}" non trouvé`);
+      const patient = await this.prisma.patient.findUnique({ where: { carypassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CaryPass ID "${patientId}" non trouvé`);
       return patient.id;
     }
     const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
@@ -155,7 +159,7 @@ export class AppointmentsService {
         throw new BadRequestException('L\'identifiant du patient est requis');
       }
 
-      // Resolve CarryPass ID (CP-2025-XXXXX) or UUID to actual patient UUID
+      // Resolve CaryPass ID (CP-2025-XXXXX) or UUID to actual patient UUID
       patientId = await this.resolvePatientId(dto.patientId);
     } else if (role === 'patient') {
       const patient = await this.prisma.patient.findUnique({
@@ -205,6 +209,23 @@ export class AppointmentsService {
         },
       },
     });
+
+    // Send appointment reminder email to the patient (non-blocking)
+    if (appointment.patient?.user?.email) {
+      const appointmentDate = new Date(appointment.date);
+      const dateStr = appointmentDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const timeStr = appointmentDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const doctorName = `${appointment.doctor?.user?.firstName ?? ''} ${appointment.doctor?.user?.lastName ?? ''}`.trim();
+
+      this.emailService.sendAppointmentReminderEmail(
+        appointment.patient.user.email,
+        appointment.patient.user.firstName,
+        doctorName,
+        dateStr,
+        timeStr,
+        'Voir les détails sur CARYPASS',
+      ).catch(() => {});
+    }
 
     return appointment;
   }

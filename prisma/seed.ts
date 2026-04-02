@@ -1,5 +1,5 @@
 // ============================================================================
-// CAREPASS Digital Health Platform - Database Seed
+// CARYPASS Digital Health Platform - Database Seed
 // Generates realistic demo data for the digital health platform
 // ============================================================================
 
@@ -10,7 +10,7 @@ const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding CAREPASS database...');
+  console.log('🌱 Seeding CARYPASS database...');
 
   // ==========================================================================
   // CLEAN EXISTING DATA (reverse dependency order)
@@ -55,7 +55,7 @@ async function main() {
   // -- Super Admin --
   const adminUser = await prisma.user.create({
     data: {
-      email: 'admin@carepass.cm',
+      email: 'admin@carypass.cm',
       passwordHash: hashedPassword,
       role: 'super_admin',
       firstName: 'Jean-Pierre',
@@ -69,7 +69,7 @@ async function main() {
   // -- Doctors --
   const doctorUser1 = await prisma.user.create({
     data: {
-      email: 'dr.nkoulou@carepass.cm',
+      email: 'dr.nkoulou@carypass.cm',
       passwordHash: hashedPassword,
       role: 'doctor',
       firstName: 'Alain',
@@ -82,7 +82,7 @@ async function main() {
 
   const doctorUser2 = await prisma.user.create({
     data: {
-      email: 'dr.fotso@carepass.cm',
+      email: 'dr.fotso@carypass.cm',
       passwordHash: hashedPassword,
       role: 'doctor',
       firstName: 'Marie',
@@ -95,7 +95,7 @@ async function main() {
 
   const doctorUser3 = await prisma.user.create({
     data: {
-      email: 'dr.kamga@carepass.cm',
+      email: 'dr.kamga@carypass.cm',
       passwordHash: hashedPassword,
       role: 'doctor',
       firstName: 'Paul',
@@ -274,7 +274,7 @@ async function main() {
   const patient1 = await prisma.patient.create({
     data: {
       userId: patientUser1.id,
-      carepassId: 'CP-2025-00001',
+      carypassId: 'CP-2025-00001',
       dateOfBirth: new Date('1990-03-15'),
       gender: 'F',
       bloodGroup: 'O+',
@@ -289,7 +289,7 @@ async function main() {
   const patient2 = await prisma.patient.create({
     data: {
       userId: patientUser2.id,
-      carepassId: 'CP-2025-00002',
+      carypassId: 'CP-2025-00002',
       dateOfBirth: new Date('1985-07-22'),
       gender: 'M',
       bloodGroup: 'A+',
@@ -303,7 +303,7 @@ async function main() {
   const patient3 = await prisma.patient.create({
     data: {
       userId: patientUser3.id,
-      carepassId: 'CP-2025-00003',
+      carypassId: 'CP-2025-00003',
       dateOfBirth: new Date('1998-11-08'),
       gender: 'F',
       bloodGroup: 'B+',
@@ -696,7 +696,7 @@ async function main() {
     data: {
       doctorId: doctor3.id,
       patientId: patient2.id,
-      patientCarepassId: patient2.carepassId,
+      patientCarypassId: patient2.carypassId,
       reason: 'Suivi cardiologique suite à référence',
       status: 'pending',
     },
@@ -771,13 +771,13 @@ async function main() {
   // ==========================================================================
   console.log('📦 Creating plans...');
 
-  const planGratuit = await prisma.plan.create({
+  const planBasique = await prisma.plan.create({
     data: {
       name: 'Basique',
       slug: 'basique',
-      description: 'Accès de base à la plateforme CarePass avec des fonctionnalités limitées.',
+      description: 'Accès de base à la plateforme CaryPass.',
       priceMonthly: 0,
-      priceYearly: null,
+      priceYearly: 1000,
       features: {
         consultations: 2,
         labResults: 1,
@@ -812,7 +812,7 @@ async function main() {
     data: {
       name: 'Premium',
       slug: 'premium',
-      description: 'Accès complet à toutes les fonctionnalités CarePass avec support prioritaire et API.',
+      description: 'Accès complet à toutes les fonctionnalités CaryPass avec support prioritaire et API.',
       priceMonthly: 7500,
       priceYearly: 75000,
       features: {
@@ -907,9 +907,9 @@ async function main() {
 
   await prisma.systemSetting.create({
     data: {
-      key: 'carepass_id_counter',
+      key: 'carypass_id_counter',
       value: '3',
-      description: 'Compteur pour la génération des CarePass ID',
+      description: 'Compteur pour la génération des CaryPass ID',
       updatedById: adminUser.id,
     },
   });
@@ -987,8 +987,8 @@ async function main() {
   console.log('  - 2 Audit Logs');
   console.log('============================================');
   console.log('\n📧 Demo accounts (password: Password123!):');
-  console.log('  Admin:       admin@carepass.cm');
-  console.log('  Doctor:      dr.nkoulou@carepass.cm');
+  console.log('  Admin:       admin@carypass.cm');
+  console.log('  Doctor:      dr.nkoulou@carypass.cm');
   console.log('  Patient:     amina.bello@gmail.com');
   console.log('  Lab:         labo@analytica.cm');
   console.log('  Insurance:   agent@activa-assurance.cm');

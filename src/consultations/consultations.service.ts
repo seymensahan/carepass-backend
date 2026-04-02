@@ -147,8 +147,8 @@ export class ConsultationsService {
 
   private async resolvePatientId(patientId: string): Promise<string> {
     if (patientId.startsWith('CP-')) {
-      const patient = await this.prisma.patient.findUnique({ where: { carepassId: patientId } });
-      if (!patient) throw new NotFoundException(`Patient avec CarryPass ID "${patientId}" non trouvé`);
+      const patient = await this.prisma.patient.findUnique({ where: { carypassId: patientId } });
+      if (!patient) throw new NotFoundException(`Patient avec CaryPass ID "${patientId}" non trouvé`);
       return patient.id;
     }
     const patient = await this.prisma.patient.findUnique({ where: { id: patientId } });
@@ -167,7 +167,7 @@ export class ConsultationsService {
       throw new NotFoundException('Profil medecin non trouve');
     }
 
-    // Resolve patient ID (supports CarryPass ID like CP-2025-00001)
+    // Resolve patient ID (supports CaryPass ID like CP-2025-00001)
     const resolvedPatientId = await this.resolvePatientId(dto.patientId);
     dto.patientId = resolvedPatientId;
 

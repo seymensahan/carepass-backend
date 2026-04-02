@@ -3,11 +3,32 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, NotificationType } from '@prisma/client';
+import { EventsGateway } from '../gateway/events.gateway';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly gateway: EventsGateway,
+  ) {}
+
+  /**
+   * Create a notification and emit it in real-time via WebSocket.
+   */
+  async create(
+    userId: string,
+    data: { title: string; message: string; type: NotificationType; link?: string },
+  ) {
+    const notification = await this.prisma.notification.create({
+      data: { userId, ...data },
+    });
+
+    // Emit real-time notification
+    this.gateway.sendNotificationToUser(userId, notification);
+
+    return notification;
+  }
 
   /**
    * List paginated notifications for a user, ordered by createdAt desc.

@@ -1,12 +1,16 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
+  Param,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Response } from 'express';
 import { ExportService } from './export.service';
 import { ExportFilterDto } from './dto/export-filter.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -30,8 +34,21 @@ export class ExportController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les patients (roles: doctor, institution_admin, super_admin)' })
   @ApiResponse({ status: 200, description: 'Donnees des patients exportees' })
-  exportPatients(@Body() filters: ExportFilterDto, @CurrentUser() user: any) {
-    return this.exportService.exportPatients(filters, user);
+  async exportPatients(
+    @Body() filters: ExportFilterDto,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.exportService.exportPatients(filters, user);
+    if ('csv' in result) {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename=${result.filename}`,
+      });
+      res.send(result.csv);
+      return;
+    }
+    return result;
   }
 
   /**
@@ -43,8 +60,21 @@ export class ExportController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les consultations (roles: doctor, institution_admin)' })
   @ApiResponse({ status: 200, description: 'Donnees des consultations exportees' })
-  exportConsultations(@Body() filters: ExportFilterDto, @CurrentUser() user: any) {
-    return this.exportService.exportConsultations(filters, user);
+  async exportConsultations(
+    @Body() filters: ExportFilterDto,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.exportService.exportConsultations(filters, user);
+    if ('csv' in result) {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename=${result.filename}`,
+      });
+      res.send(result.csv);
+      return;
+    }
+    return result;
   }
 
   /**
@@ -56,8 +86,21 @@ export class ExportController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les resultats de laboratoire (roles: doctor, lab)' })
   @ApiResponse({ status: 200, description: 'Donnees des resultats de laboratoire exportees' })
-  exportLabResults(@Body() filters: ExportFilterDto, @CurrentUser() user: any) {
-    return this.exportService.exportLabResults(filters, user);
+  async exportLabResults(
+    @Body() filters: ExportFilterDto,
+    @CurrentUser() user: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.exportService.exportLabResults(filters, user);
+    if ('csv' in result) {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename=${result.filename}`,
+      });
+      res.send(result.csv);
+      return;
+    }
+    return result;
   }
 
   /**
@@ -69,7 +112,36 @@ export class ExportController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les statistiques (roles: institution_admin, super_admin)' })
   @ApiResponse({ status: 200, description: 'Statistiques exportees' })
-  exportStatistics(@Body() filters: ExportFilterDto) {
-    return this.exportService.exportStatistics(filters);
+  async exportStatistics(
+    @Body() filters: ExportFilterDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.exportService.exportStatistics(filters);
+    if ('csv' in result) {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename=${result.filename}`,
+      });
+      res.send(result.csv);
+      return;
+    }
+    return result;
+  }
+
+  /**
+   * GET /export/consultations/:id/pdf
+   * Generer un PDF de consultation.
+   */
+  @Get('consultations/:id/pdf')
+  @Roles('doctor', 'patient', 'institution_admin', 'super_admin')
+  @ApiOperation({ summary: 'Generer un PDF de consultation' })
+  @ApiResponse({ status: 200, description: 'PDF de consultation genere' })
+  async getConsultationPdf(@Param('id') id: string, @Res() res: Response) {
+    const pdfBuffer = await this.exportService.generateConsultationPdf(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=consultation-${id}.pdf`,
+    });
+    res.send(pdfBuffer);
   }
 }

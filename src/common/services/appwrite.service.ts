@@ -14,7 +14,7 @@ export class AppwriteService {
     const endpoint = this.configService.get<string>('APPWRITE_ENDPOINT');
     const projectId = this.configService.get<string>('APPWRITE_PROJECT_ID');
     const apiKey = this.configService.get<string>('APPWRITE_API_KEY');
-    this.bucketId = this.configService.get<string>('APPWRITE_BUCKET_ID', 'carrypass-files');
+    this.bucketId = this.configService.get<string>('APPWRITE_BUCKET_ID', 'carypass-files');
 
     if (endpoint && projectId && apiKey) {
       this.client = new Client()

@@ -99,7 +99,7 @@ describe('AccessRequestsService', () => {
       });
 
       const result = await service.create('user-d1', {
-        patientCarepassId: 'CP-2026-00001',
+        patientCarypassId: 'CP-2026-00001',
         reason: 'Suivi medical',
       });
 
@@ -110,7 +110,7 @@ describe('AccessRequestsService', () => {
       prisma.doctor.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.create('user-d1', { patientCarepassId: 'CP-2026-00001', reason: 'Test' }),
+        service.create('user-d1', { patientCarypassId: 'CP-2026-00001', reason: 'Test' }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -119,7 +119,7 @@ describe('AccessRequestsService', () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.create('user-d1', { patientCarepassId: 'CP-INVALID', reason: 'Test' }),
+        service.create('user-d1', { patientCarypassId: 'CP-INVALID', reason: 'Test' }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -129,7 +129,7 @@ describe('AccessRequestsService', () => {
       prisma.accessRequest.findFirst.mockResolvedValue({ id: 'existing' });
 
       await expect(
-        service.create('user-d1', { patientCarepassId: 'CP-2026-00001', reason: 'Test' }),
+        service.create('user-d1', { patientCarypassId: 'CP-2026-00001', reason: 'Test' }),
       ).rejects.toThrow(ConflictException);
     });
   });

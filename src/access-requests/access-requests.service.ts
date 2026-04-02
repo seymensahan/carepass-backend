@@ -8,10 +8,14 @@ import {
 import { PrismaClient } from '@prisma/client';
 import { CreateAccessRequestDto } from './dto/create-access-request.dto';
 import { AccessRequestFilterDto } from './dto/access-request-filter.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AccessRequestsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly emailService: EmailService,
+  ) {}
 
   /**
    * List access requests with pagination.
@@ -92,7 +96,7 @@ export class AccessRequestsService {
 
   /**
    * Create a new access request from a doctor to a patient.
-   * Looks up the patient by their CarryPass ID.
+   * Looks up the patient by their CaryPass ID.
    */
   async create(doctorUserId: string, dto: CreateAccessRequestDto) {
     // Find doctor profile from user ID
@@ -103,12 +107,12 @@ export class AccessRequestsService {
       throw new NotFoundException('Profil médecin non trouvé');
     }
 
-    // Find patient by CarryPass ID
+    // Find patient by CaryPass ID
     const patient = await this.prisma.patient.findUnique({
-      where: { carepassId: dto.patientCarepassId },
+      where: { carypassId: dto.patientCarypassId },
     });
     if (!patient) {
-      throw new NotFoundException('Patient non trouvé avec cet identifiant CarryPass');
+      throw new NotFoundException('Patient non trouvé avec cet identifiant CaryPass');
     }
 
     // Check no pending request already exists for this doctor + patient
@@ -125,11 +129,11 @@ export class AccessRequestsService {
       );
     }
 
-    return this.prisma.accessRequest.create({
+    const accessRequest = await this.prisma.accessRequest.create({
       data: {
         doctorId: doctor.id,
         patientId: patient.id,
-        patientCarepassId: dto.patientCarepassId,
+        patientCarypassId: dto.patientCarypassId,
         reason: dto.reason,
       },
       include: {
@@ -137,6 +141,19 @@ export class AccessRequestsService {
         patient: { include: { user: true } },
       },
     });
+
+    // Send email to the patient about the access request (non-blocking)
+    if (accessRequest.patient?.user?.email) {
+      const doctorName = `${accessRequest.doctor?.user?.firstName ?? ''} ${accessRequest.doctor?.user?.lastName ?? ''}`.trim();
+      this.emailService.sendAccessRequestEmail(
+        accessRequest.patient.user.email,
+        accessRequest.patient.user.firstName,
+        doctorName,
+        dto.reason || '',
+      ).catch(() => {});
+    }
+
+    return accessRequest;
   }
 
   /**
@@ -203,6 +220,16 @@ export class AccessRequestsService {
         },
       }),
     ]);
+
+    // Send email to the doctor about the granted access (non-blocking)
+    if (updatedRequest.doctor?.user?.email) {
+      this.emailService.sendAccessGrantedEmail(
+        updatedRequest.doctor.user.email,
+        updatedRequest.doctor.user.firstName,
+        patientName,
+        '',
+      ).catch(() => {});
+    }
 
     return updatedRequest;
   }

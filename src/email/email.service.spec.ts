@@ -9,7 +9,7 @@ describe('EmailService', () => {
     get: jest.fn((key: string, defaultValue?: string) => {
       const config: Record<string, string> = {
         FRONTEND_URL: 'http://localhost:3000',
-        EMAIL_FROM: 'CARRYPASS <noreply@carrypass.cm>',
+        EMAIL_FROM: 'CARYPASS <noreply@carypass.cm>',
       };
       return config[key] || defaultValue;
     }),

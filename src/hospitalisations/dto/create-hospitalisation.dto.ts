@@ -2,7 +2,7 @@ import { IsString, IsOptional, IsDateString, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateHospitalisationDto {
-  @ApiProperty({ description: 'Patient ID (UUID ou CarryPass ID ex: CP-2025-00001)' })
+  @ApiProperty({ description: 'Patient ID (UUID ou CaryPass ID ex: CP-2025-00001)' })
   @IsString()
   patientId: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() institutionId?: string;

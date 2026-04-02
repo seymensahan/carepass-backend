@@ -7,10 +7,16 @@ import { PrismaClient } from '@prisma/client';
 import { CreateLabResultDto } from './dto/create-lab-result.dto';
 import { UpdateLabResultDto } from './dto/update-lab-result.dto';
 import { LabResultFilterDto } from './dto/lab-result-filter.dto';
+import { EmailService } from '../email/email.service';
+import { AppwriteService } from '../common/services/appwrite.service';
 
 @Injectable()
 export class LabResultsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly emailService: EmailService,
+    private readonly appwriteService: AppwriteService,
+  ) {}
 
   async findAll(filters: LabResultFilterDto, user: any) {
     const { page = 1, limit = 20, patientId, category, status, dateFrom, dateTo } = filters;
@@ -106,14 +112,26 @@ export class LabResultsService {
     return labResult;
   }
 
-  async create(uploadedById: string, dto: CreateLabResultDto) {
+  async create(uploadedById: string, dto: CreateLabResultDto, file?: Express.Multer.File) {
     const { items, ...data } = dto;
+
+    // Upload file to Appwrite if provided, otherwise use fileUrl from DTO
+    let resolvedFileUrl = data.fileUrl || '';
+    if (file) {
+      const { url } = await this.appwriteService.uploadFile(file, 'lab-results');
+      resolvedFileUrl = url;
+    }
 
     const labResult = await this.prisma.labResult.create({
       data: {
-        ...data,
+        patientId: data.patientId,
+        title: data.title,
+        category: data.category,
         date: new Date(data.date),
+        fileUrl: resolvedFileUrl,
         uploadedById,
+        institutionId: data.institutionId,
+        notes: data.notes,
         items: items && items.length > 0
           ? {
               create: items.map((item) => ({
@@ -132,6 +150,16 @@ export class LabResultsService {
         uploadedBy: true,
       },
     });
+
+    // Send email to patient when lab result is uploaded (non-blocking)
+    const patientUser = (labResult as any).patient?.user;
+    if (patientUser?.email) {
+      this.emailService.sendLabResultReadyEmail(
+        patientUser.email,
+        patientUser.firstName,
+        labResult.title,
+      ).catch(() => {});
+    }
 
     return labResult;
   }

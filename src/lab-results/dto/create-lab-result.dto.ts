@@ -59,10 +59,10 @@ export class CreateLabResultDto {
   @IsEnum(LabCategory, { message: 'La categorie est invalide' })
   category?: LabCategory;
 
-  @ApiProperty({ description: "URL du fichier d'analyse" })
+  @ApiPropertyOptional({ description: "URL du fichier d'analyse (optionnel si un fichier est joint)" })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: "L'URL du fichier est requise" })
-  fileUrl: string;
+  fileUrl?: string;
 
   @ApiProperty({ description: 'Date du resultat (ISO 8601)' })
   @IsDateString({}, { message: 'La date doit etre au format ISO 8601' })

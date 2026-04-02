@@ -86,7 +86,7 @@ export class PaymentsService {
               address: { value: this.normalizePhone(dto.phoneNumber) },
             },
             customerTimestamp: new Date().toISOString(),
-            statementDescription: `CARRYPASS ${plan.name}`.slice(0, 22).replace(/[^a-zA-Z0-9 ]/g, ''),
+            statementDescription: `CARYPASS ${plan.name}`.slice(0, 22).replace(/[^a-zA-Z0-9 ]/g, ''),
           }),
         });
 
@@ -382,7 +382,7 @@ export class PaymentsService {
   // ---------------------------------------------------------------------------
   async seedDefaultPlans() {
     const defaults = [
-      { slug: 'patient', name: 'Patient CarryPass', priceMonthly: 84, priceYearly: 1000, description: 'Accès à la plateforme CarryPass' },
+      { slug: 'patient', name: 'Patient CaryPass', priceMonthly: 84, priceYearly: 1000, description: 'Accès à la plateforme CaryPass' },
       { slug: 'doctor_premium', name: 'Médecin Premium', priceMonthly: 2000, priceYearly: 20000, description: 'Synchronisation multi-institution' },
       { slug: 'clinique', name: 'Cliniques & Petits Centres', priceMonthly: 4167, priceYearly: 50000, description: 'Gestion clinique complète' },
       { slug: 'hopital_moyen', name: 'Hôpitaux Moyens', priceMonthly: 8334, priceYearly: 100000, description: 'Gestion hospitalière avancée' },

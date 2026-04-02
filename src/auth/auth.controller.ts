@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, HttpCode, HttpStatus, UseGuards, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, HttpCode, HttpStatus, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { InvitationsService } from '../institutions/invitations.service';
@@ -116,8 +116,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Déconnexion' })
   @ApiResponse({ status: 200, description: 'Déconnexion réussie' })
-  async logout() {
-    return this.authService.logout();
+  async logout(@Headers('authorization') auth: string) {
+    const token = auth?.replace('Bearer ', '');
+    return this.authService.logout(token);
   }
 
   /**
@@ -147,5 +148,88 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Rôle non disponible' })
   async switchRole(@CurrentUser('id') userId: string, @Body() body: { role: string }) {
     return this.authService.switchRole(userId, body.role as any);
+  }
+
+  // -------------------------------------------------------------------------
+  // TWO-FACTOR AUTHENTICATION
+  // -------------------------------------------------------------------------
+
+  /**
+   * POST /auth/verify-2fa
+   * Verify 2FA OTP code. Public route (user not yet authenticated).
+   */
+  @Post('verify-2fa')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vérifier le code 2FA' })
+  @ApiResponse({ status: 200, description: 'Code vérifié, tokens retournés' })
+  @ApiResponse({ status: 401, description: 'Code invalide ou expiré' })
+  async verifyTwoFactor(@Body() body: { tempToken: string; code: string }) {
+    return this.authService.verifyTwoFactor(body.tempToken, body.code);
+  }
+
+  /**
+   * POST /auth/enable-2fa
+   * Enable two-factor authentication for the current user.
+   */
+  @Post('enable-2fa')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activer l\'authentification à deux facteurs' })
+  @ApiResponse({ status: 200, description: 'Code de vérification envoyé' })
+  async enableTwoFactor(
+    @CurrentUser('id') userId: string,
+    @Body() body: { phone: string },
+  ) {
+    return this.authService.enableTwoFactor(userId, body.phone);
+  }
+
+  /**
+   * POST /auth/confirm-enable-2fa
+   * Confirm 2FA activation with the code received via SMS.
+   */
+  @Post('confirm-enable-2fa')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirmer l\'activation du 2FA avec le code reçu' })
+  @ApiResponse({ status: 200, description: '2FA activé avec succès' })
+  @ApiResponse({ status: 401, description: 'Code incorrect ou expiré' })
+  async confirmEnableTwoFactor(
+    @CurrentUser('id') userId: string,
+    @Body() body: { code: string },
+  ) {
+    return this.authService.confirmEnableTwoFactor(userId, body.code);
+  }
+
+  /**
+   * POST /auth/disable-2fa
+   * Disable two-factor authentication (requires password confirmation).
+   */
+  @Post('disable-2fa')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Désactiver l\'authentification à deux facteurs' })
+  @ApiResponse({ status: 200, description: '2FA désactivé' })
+  @ApiResponse({ status: 401, description: 'Mot de passe incorrect' })
+  async disableTwoFactor(
+    @CurrentUser('id') userId: string,
+    @Body() body: { password: string },
+  ) {
+    return this.authService.disableTwoFactor(userId, body.password);
+  }
+
+  /**
+   * POST /auth/resend-otp
+   * Resend OTP code during 2FA login flow. Public route.
+   */
+  @Post('resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Renvoyer le code OTP' })
+  @ApiResponse({ status: 200, description: 'Nouveau code envoyé' })
+  @ApiResponse({ status: 401, description: 'Token temporaire invalide' })
+  async resendOtp(@Body() body: { tempToken: string }) {
+    return this.authService.resendOtp(body.tempToken);
   }
 }

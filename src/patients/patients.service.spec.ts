@@ -123,19 +123,19 @@ describe('PatientsService', () => {
     });
   });
 
-  describe('findByCarepassId', () => {
-    it('should return patient by carrypass id', async () => {
-      prisma.patient.findUnique.mockResolvedValue({ id: 'pat-1', carepassId: 'CP-2026-00001' });
+  describe('findByCarypassId', () => {
+    it('should return patient by carypass id', async () => {
+      prisma.patient.findUnique.mockResolvedValue({ id: 'pat-1', carypassId: 'CP-2026-00001' });
 
-      const result = await service.findByCarepassId('CP-2026-00001');
+      const result = await service.findByCarypassId('CP-2026-00001');
 
-      expect(result.carepassId).toBe('CP-2026-00001');
+      expect(result.carypassId).toBe('CP-2026-00001');
     });
 
-    it('should throw NotFoundException for invalid carrypass id', async () => {
+    it('should throw NotFoundException for invalid carypass id', async () => {
       prisma.patient.findUnique.mockResolvedValue(null);
 
-      await expect(service.findByCarepassId('CP-INVALID')).rejects.toThrow(NotFoundException);
+      await expect(service.findByCarypassId('CP-INVALID')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -153,7 +153,7 @@ describe('PatientsService', () => {
       prisma.patient.create.mockResolvedValue({
         id: 'pat-1',
         userId: 'user-p1',
-        carepassId: 'CP-2026-00006',
+        carypassId: 'CP-2026-00006',
       });
 
       const result = await service.create('user-p1', {

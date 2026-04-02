@@ -19,6 +19,8 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { EmailService } from '../email/email.service';
+import { SmsService } from '../sms/sms.service';
+import { TokenBlacklistService } from './token-blacklist.service';
 
 @Injectable()
 export class AuthService {
@@ -29,6 +31,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly smsService: SmsService,
+    private readonly tokenBlacklistService: TokenBlacklistService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -59,13 +63,13 @@ export class AuthService {
       },
     });
 
-    // If role is patient, create Patient record with CarryPass ID
+    // If role is patient, create Patient record with CaryPass ID
     if (dto.role === Role.patient) {
-      const carepassId = await this.generateCarepassId();
+      const carypassId = await this.generateCarypassId();
       await this.prisma.patient.create({
         data: {
           userId: user.id,
-          carepassId,
+          carypassId,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : new Date('2000-01-01'),
           gender: dto.gender as any || undefined,
           bloodGroup: dto.bloodGroup || undefined,
@@ -164,6 +168,43 @@ export class AuthService {
       throw new UnauthorizedException('Ce compte a été désactivé');
     }
 
+    // Check if user has 2FA enabled
+    if (user.twoFactorEnabled && user.phone) {
+      // Generate and send OTP
+      const { code } = await this.smsService.sendOtp(user.phone);
+
+      // Hash and store OTP
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+      // Invalidate previous OTPs for this user
+      await this.prisma.otpCode.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      // Create new OTP
+      await this.prisma.otpCode.create({
+        data: {
+          userId: user.id,
+          code: codeHash,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+        },
+      });
+
+      // Generate a temporary token (short-lived, only for 2FA verification)
+      const tempToken = await this.jwtService.signAsync(
+        { sub: user.id, purpose: '2fa' },
+        { expiresIn: '5m' },
+      );
+
+      return {
+        requiresTwoFactor: true,
+        tempToken,
+        message: 'Code de vérification envoyé par SMS',
+      };
+    }
+
+    // If no 2FA, return tokens as before
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
@@ -375,9 +416,11 @@ export class AuthService {
   // ---------------------------------------------------------------------------
   // LOGOUT
   // ---------------------------------------------------------------------------
-  async logout() {
-    // Token invalidation is handled client-side by deleting the tokens.
-    // In a production system, we would add the token to a blacklist (Redis).
+  async logout(token?: string) {
+    if (token) {
+      // Blacklist for remaining token lifetime (15 minutes max)
+      this.tokenBlacklistService.add(token, 15 * 60 * 1000);
+    }
     return { message: 'Déconnexion réussie' };
   }
 
@@ -418,6 +461,199 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------
+  // VERIFY TWO-FACTOR CODE
+  // ---------------------------------------------------------------------------
+  async verifyTwoFactor(tempToken: string, code: string) {
+    // Verify temp token
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(tempToken);
+      if (payload.purpose !== '2fa') throw new Error();
+    } catch {
+      throw new UnauthorizedException('Token temporaire invalide ou expiré');
+    }
+
+    const userId = payload.sub;
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    // Find valid OTP
+    const otpCode = await this.prisma.otpCode.findFirst({
+      where: {
+        userId,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!otpCode) {
+      throw new UnauthorizedException('Code expiré. Veuillez vous reconnecter.');
+    }
+
+    // Check max attempts (3)
+    if (otpCode.attempts >= 3) {
+      await this.prisma.otpCode.update({
+        where: { id: otpCode.id },
+        data: { usedAt: new Date() },
+      });
+      throw new UnauthorizedException('Trop de tentatives. Veuillez vous reconnecter.');
+    }
+
+    // Increment attempts
+    await this.prisma.otpCode.update({
+      where: { id: otpCode.id },
+      data: { attempts: otpCode.attempts + 1 },
+    });
+
+    // Verify code
+    if (otpCode.code !== codeHash) {
+      throw new UnauthorizedException(
+        `Code incorrect. ${2 - otpCode.attempts} tentative(s) restante(s).`,
+      );
+    }
+
+    // Mark as used
+    await this.prisma.otpCode.update({
+      where: { id: otpCode.id },
+      data: { usedAt: new Date() },
+    });
+
+    // Get user and generate real tokens
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Utilisateur non trouvé');
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    const patient =
+      user.role === 'patient'
+        ? await this.prisma.patient.findUnique({ where: { userId: user.id } })
+        : null;
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        availableRoles:
+          user.availableRoles?.length > 0 ? user.availableRoles : [user.role],
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        gender: patient?.gender || null,
+        dateOfBirth: patient?.dateOfBirth?.toISOString() || null,
+        bloodGroup: patient?.bloodGroup || null,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // ENABLE TWO-FACTOR
+  // ---------------------------------------------------------------------------
+  async enableTwoFactor(userId: string, phone: string) {
+    // Send verification OTP first
+    const { code } = await this.smsService.sendOtp(phone);
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    await this.prisma.otpCode.create({
+      data: {
+        userId,
+        code: codeHash,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      },
+    });
+
+    return {
+      message: 'Code de vérification envoyé. Confirmez pour activer le 2FA.',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // CONFIRM ENABLE TWO-FACTOR
+  // ---------------------------------------------------------------------------
+  async confirmEnableTwoFactor(userId: string, code: string) {
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    const otpCode = await this.prisma.otpCode.findFirst({
+      where: { userId, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!otpCode || otpCode.code !== codeHash) {
+      throw new UnauthorizedException('Code incorrect ou expiré');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.otpCode.update({
+        where: { id: otpCode.id },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { twoFactorEnabled: true, twoFactorMethod: 'sms' },
+      }),
+    ]);
+
+    return {
+      message: 'Authentification à deux facteurs activée avec succès',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // DISABLE TWO-FACTOR
+  // ---------------------------------------------------------------------------
+  async disableTwoFactor(userId: string, password: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur non trouvé');
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) throw new UnauthorizedException('Mot de passe incorrect');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: false, twoFactorMethod: null },
+    });
+
+    return { message: 'Authentification à deux facteurs désactivée' };
+  }
+
+  // ---------------------------------------------------------------------------
+  // RESEND OTP
+  // ---------------------------------------------------------------------------
+  async resendOtp(tempToken: string) {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(tempToken);
+      if (payload.purpose !== '2fa') throw new Error();
+    } catch {
+      throw new UnauthorizedException('Token temporaire invalide ou expiré');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user?.phone)
+      throw new BadRequestException('Numéro de téléphone non configuré');
+
+    const { code } = await this.smsService.sendOtp(user.phone);
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    await this.prisma.otpCode.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    await this.prisma.otpCode.create({
+      data: {
+        userId: user.id,
+        code: codeHash,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      },
+    });
+
+    return { message: 'Nouveau code envoyé par SMS' };
+  }
+
+  // ---------------------------------------------------------------------------
   // PRIVATE HELPERS
   // ---------------------------------------------------------------------------
 
@@ -439,20 +675,20 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private async generateCarepassId(): Promise<string> {
+  private async generateCarypassId(): Promise<string> {
     const year = new Date().getFullYear();
     const result = await this.prisma.$transaction(async (tx) => {
       const setting = await tx.systemSetting.findUnique({
-        where: { key: 'carepass_id_counter' },
+        where: { key: 'carypass_id_counter' },
       });
       const counter = parseInt(setting?.value || '0') + 1;
       await tx.systemSetting.upsert({
-        where: { key: 'carepass_id_counter' },
+        where: { key: 'carypass_id_counter' },
         update: { value: counter.toString() },
         create: {
-          key: 'carepass_id_counter',
+          key: 'carypass_id_counter',
           value: counter.toString(),
-          description: 'Compteur CarryPass ID',
+          description: 'Compteur CaryPass ID',
         },
       });
       return counter;

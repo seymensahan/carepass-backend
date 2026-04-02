@@ -32,6 +32,9 @@ import { PregnancyModule } from './pregnancy/pregnancy.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HospitalisationsModule } from './hospitalisations/hospitalisations.module';
 import { NursesModule } from './nurses/nurses.module';
+import { GatewayModule } from './gateway/gateway.module';
+import { MessagingModule } from './messaging/messaging.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
   imports: [
@@ -50,16 +53,20 @@ import { NursesModule } from './nurses/nurses.module';
 
         // Optional — services degrade gracefully if not set
         RESEND_API_KEY: Joi.string().optional().allow(''),
-        EMAIL_FROM: Joi.string().default('CARRYPASS <noreply@carrypass.cm>'),
+        EMAIL_FROM: Joi.string().default('CARYPASS <noreply@carypass.cm>'),
         FRONTEND_URL: Joi.string().default('http://localhost:3000'),
 
         APPWRITE_ENDPOINT: Joi.string().optional().allow(''),
         APPWRITE_PROJECT_ID: Joi.string().optional().allow(''),
         APPWRITE_API_KEY: Joi.string().optional().allow(''),
-        APPWRITE_BUCKET_ID: Joi.string().default('carrypass-files'),
+        APPWRITE_BUCKET_ID: Joi.string().default('carypass-files'),
 
         PAWAPAY_API_URL: Joi.string().default('https://api.sandbox.pawapay.io'),
         PAWAPAY_API_KEY: Joi.string().optional().allow(''),
+
+        ORANGE_SMS_CLIENT_ID: Joi.string().optional().allow(''),
+        ORANGE_SMS_CLIENT_SECRET: Joi.string().optional().allow(''),
+        ORANGE_SMS_SENDER: Joi.string().default('tel:+237XXXXXXXXX'),
 
         CORS_ORIGINS: Joi.string().default('http://localhost:3000,http://localhost:8081'),
         THROTTLE_TTL: Joi.number().default(60000),
@@ -77,6 +84,7 @@ import { NursesModule } from './nurses/nurses.module';
     // Infrastructure
     DatabaseModule,
     EmailModule,
+    SmsModule,
 
     // Feature modules
     AuthModule,
@@ -107,6 +115,8 @@ import { NursesModule } from './nurses/nurses.module';
     PaymentsModule,
     HospitalisationsModule,
     NursesModule,
+    GatewayModule,
+    MessagingModule,
   ],
 })
 export class AppModule {}

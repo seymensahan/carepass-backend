@@ -1,5 +1,5 @@
 // ============================================================================
-// CAREPASS Digital Health Platform - Prisma Schema
+// CARYPASS Digital Health Platform - Prisma Schema
 // Database: Neon PostgreSQL (Cameroon)
 // ============================================================================
 
@@ -177,8 +177,10 @@ model User {
   phone           String?
   avatarUrl       String?   @map("avatar_url")
   isActive        Boolean   @default(true) @map("is_active")
-  emailVerifiedAt DateTime? @map("email_verified_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  emailVerifiedAt  DateTime? @map("email_verified_at")
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorMethod  String?   @map("two_factor_method") // "sms"
+  createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   // Relations
@@ -196,6 +198,10 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   payments             Payment[]
   sentInvitations      Invitation[]       @relation("InvitedByUser")
+  otpCodes             OtpCode[]
+  patientConversations Conversation[]     @relation("PatientConversations")
+  doctorConversations  Conversation[]     @relation("DoctorConversations")
+  sentMessages         Message[]          @relation("SentMessages")
 
   @@map("users")
 }
@@ -206,7 +212,7 @@ model User {
 model Patient {
   id             String    @id @default(uuid())
   userId         String    @unique @map("user_id")
-  carepassId     String    @unique @map("carepass_id")
+  carypassId    String    @unique @map("carepass_id")
   dateOfBirth    DateTime  @map("date_of_birth")
   gender         Gender?
   bloodGroup     String?   @map("blood_group")
@@ -236,7 +242,7 @@ model Patient {
   pregnancies       Pregnancy[]
   hospitalisations  Hospitalisation[]
 
-  @@index([carepassId])
+  @@index([carypassId])
   @@index([userId])
   @@map("patients")
 }
@@ -630,7 +636,7 @@ model AccessRequest {
   id               String              @id @default(uuid())
   doctorId         String              @map("doctor_id")
   patientId        String              @map("patient_id")
-  patientCarepassId String             @map("patient_carepass_id")
+  patientCarypassId String             @map("patient_carepass_id")
   reason           String?
   status           AccessRequestStatus @default(pending)
   requestedAt      DateTime            @default(now()) @map("requested_at")
@@ -847,6 +853,25 @@ model EmailVerificationToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("email_verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// OTP Code (for 2FA via SMS)
+// ---------------------------------------------------------------------------
+model OtpCode {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  code      String    // hashed OTP code
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("otp_codes")
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,6 +1179,49 @@ model CarePlanExecution {
   @@index([carePlanItemId])
   @@index([nurseId])
   @@map("care_plan_executions")
+}
+
+// ---------------------------------------------------------------------------
+// Conversation (messaging between doctor and patient)
+// ---------------------------------------------------------------------------
+model Conversation {
+  id            String    @id @default(uuid())
+  patientUserId String    @map("patient_user_id")
+  doctorUserId  String    @map("doctor_user_id")
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  patientUser User      @relation("PatientConversations", fields: [patientUserId], references: [id], onDelete: Cascade)
+  doctorUser  User      @relation("DoctorConversations", fields: [doctorUserId], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@unique([patientUserId, doctorUserId])
+  @@index([patientUserId])
+  @@index([doctorUserId])
+  @@map("conversations")
+}
+
+// ---------------------------------------------------------------------------
+// Message
+// ---------------------------------------------------------------------------
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  senderUserId   String    @map("sender_user_id")
+  content        String
+  isRead         Boolean   @default(false) @map("is_read")
+  readAt         DateTime? @map("read_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderUserId])
+  @@map("messages")
 }
 
 // ---------------------------------------------------------------------------

@@ -8,8 +8,11 @@ import {
   Body,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -40,9 +43,15 @@ export class LabResultsController {
 
   @Post()
   @Roles('lab', 'doctor')
-  @ApiOperation({ summary: 'Creer un resultat de laboratoire' })
-  create(@Body() dto: CreateLabResultDto, @CurrentUser() user: any) {
-    return this.labResultsService.create(user.id, dto);
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Creer un resultat de laboratoire (avec fichier optionnel)' })
+  create(
+    @Body() dto: CreateLabResultDto,
+    @CurrentUser() user: any,
+    @UploadedFile() file?: any,
+  ) {
+    return this.labResultsService.create(user.id, dto, file);
   }
 
   @Patch(':id')
