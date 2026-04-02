@@ -37,6 +37,8 @@ async function main() {
   await prisma.prescriptionItem.deleteMany();
   await prisma.prescription.deleteMany();
   await prisma.consultation.deleteMany();
+  await prisma.carePlanExecution.deleteMany();
+  await prisma.carePlanItem.deleteMany();
   await prisma.hospitalisationNurseAssignment.deleteMany();
   await prisma.evolutionNote.deleteMany();
   await prisma.hospitalisationMedication.deleteMany();
@@ -354,7 +356,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2026-03-15T10:00:00Z'),
+      date: new Date('2026-03-24T10:00:00Z'),
       type: 'consultation',
       motif: 'Fièvre persistante et maux de tête',
       symptoms: 'Fièvre 38.5°C, céphalées, fatigue',
@@ -376,7 +378,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2026-03-20T09:30:00Z'),
+      date: new Date('2026-03-26T09:30:00Z'),
       type: 'suivi',
       motif: 'Contrôle post-traitement paludisme',
       symptoms: null,
@@ -398,7 +400,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2026-03-25T14:00:00Z'),
+      date: new Date('2026-03-28T14:00:00Z'),
       type: 'consultation',
       motif: 'Douleurs abdominales',
       symptoms: 'Douleurs épigastriques, nausées',
@@ -420,7 +422,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2026-03-31T08:30:00Z'),
+      date: new Date('2026-03-31T08:00:00Z'),
       type: 'consultation',
       motif: 'Bilan annuel de santé',
       symptoms: null,
@@ -760,6 +762,219 @@ async function main() {
       reason: 'Première consultation pédiatrique pour enfant',
       status: 'confirmed',
     },
+  });
+
+  // ==========================================================================
+  // 18b. HOSPITALISATIONS + NURSE ASSIGNMENTS + CARE PLANS
+  // ==========================================================================
+  console.log('🏥 Creating hospitalisations...');
+
+  const hosp1 = await prisma.hospitalisation.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      institutionId: institution1.id,
+      room: 'Chambre 12',
+      bed: 'Lit A',
+      admissionDate: new Date('2026-03-26T08:00:00Z'),
+      reason: 'Paludisme sévère avec anémie',
+      diagnosis: 'Paludisme sévère',
+      status: 'en_cours',
+      notes: 'Patiente admise pour prise en charge IV du paludisme sévère. Anémie associée nécessitant surveillance rapprochée.',
+    },
+  });
+
+  const hosp2 = await prisma.hospitalisation.create({
+    data: {
+      patientId: patient2.id,
+      doctorId: doctor3.id,
+      institutionId: institution1.id,
+      room: 'Chambre 5',
+      bed: 'Lit B',
+      admissionDate: new Date('2026-03-28T10:00:00Z'),
+      reason: 'Insuffisance cardiaque décompensée',
+      diagnosis: 'Insuffisance cardiaque classe III',
+      status: 'en_cours',
+      notes: 'Patient admis pour décompensation cardiaque. Dyspnée au repos, oedèmes des membres inférieurs.',
+    },
+  });
+
+  // Nurse assignments
+  await prisma.hospitalisationNurseAssignment.create({
+    data: { hospitalisationId: hosp1.id, nurseId: nurse1.id },
+  });
+  await prisma.hospitalisationNurseAssignment.create({
+    data: { hospitalisationId: hosp2.id, nurseId: nurse1.id },
+  });
+
+  // Vital signs recorded by nurse
+  await prisma.hospitalisationVital.createMany({
+    data: [
+      {
+        hospitalisationId: hosp1.id,
+        temperature: 39.2, systolic: 100, diastolic: 65, heartRate: 110, spO2: 94,
+        nurseId: nurse1.id, nurseName: 'Florence Nkeng',
+        notes: 'Fièvre élevée, tachycardie. Perfusion de quinine démarrée.',
+        recordedAt: new Date('2026-03-26T08:30:00Z'),
+      },
+      {
+        hospitalisationId: hosp1.id,
+        temperature: 38.1, systolic: 110, diastolic: 70, heartRate: 95, spO2: 96,
+        nurseId: nurse1.id, nurseName: 'Florence Nkeng',
+        notes: 'Température en baisse. Patiente plus réactive.',
+        recordedAt: new Date('2026-03-27T08:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp2.id,
+        temperature: 37.2, systolic: 150, diastolic: 95, heartRate: 88, spO2: 91,
+        nurseId: nurse1.id, nurseName: 'Florence Nkeng',
+        notes: 'HTA persistante, SpO2 basse. O2 nasal 2L/min.',
+        recordedAt: new Date('2026-03-28T11:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp2.id,
+        temperature: 37.0, systolic: 140, diastolic: 85, heartRate: 82, spO2: 95,
+        nurseId: nurse1.id, nurseName: 'Florence Nkeng',
+        notes: 'Amélioration sous diurétiques. Moins de dyspnée.',
+        recordedAt: new Date('2026-03-29T08:00:00Z'),
+      },
+    ],
+  });
+
+  // Medications administered by nurse
+  await prisma.hospitalisationMedication.createMany({
+    data: [
+      {
+        hospitalisationId: hosp1.id,
+        medication: 'Quinine IV', dosage: '600mg/8h', route: 'IV',
+        nurseId: nurse1.id, administeredBy: 'Florence Nkeng',
+        administeredAt: new Date('2026-03-26T09:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp1.id,
+        medication: 'Paracétamol', dosage: '1g/6h', route: 'PO',
+        nurseId: nurse1.id, administeredBy: 'Florence Nkeng',
+        administeredAt: new Date('2026-03-26T10:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp2.id,
+        medication: 'Furosémide', dosage: '40mg', route: 'IV',
+        nurseId: nurse1.id, administeredBy: 'Florence Nkeng',
+        administeredAt: new Date('2026-03-28T11:30:00Z'),
+      },
+      {
+        hospitalisationId: hosp2.id,
+        medication: 'Captopril', dosage: '25mg', route: 'PO',
+        nurseId: nurse1.id, administeredBy: 'Florence Nkeng',
+        administeredAt: new Date('2026-03-28T12:00:00Z'),
+      },
+    ],
+  });
+
+  // Evolution notes
+  await prisma.evolutionNote.createMany({
+    data: [
+      {
+        hospitalisationId: hosp1.id,
+        doctorName: 'Dr. Alain Nkoulou',
+        content: 'J1 : Paludisme sévère confirmé (GE 25000/µL). Quinine IV démarrée. Hb=8g/dL → transfusion de 2 CGR programmée.',
+        createdAt: new Date('2026-03-26T12:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp1.id,
+        doctorName: 'Dr. Alain Nkoulou',
+        content: 'J2 : Apyrexie. GE contrôle 5000/µL. Relais per os ACT. Hb post-transfusion 10.5g/dL.',
+        createdAt: new Date('2026-03-27T10:00:00Z'),
+      },
+      {
+        hospitalisationId: hosp2.id,
+        doctorName: 'Dr. Paul Kamga',
+        content: 'J1 : IC décompensée sur HTA non contrôlée. Furosémide IV + captopril. O2 nasal 2L. ECG : BBG.',
+        createdAt: new Date('2026-03-28T14:00:00Z'),
+      },
+    ],
+  });
+
+  // Care Plan Items (tasks for the nurse)
+  const carePlan1 = await prisma.carePlanItem.create({
+    data: {
+      hospitalisationId: hosp1.id,
+      type: 'vital_check',
+      title: 'Prise des paramètres vitaux',
+      description: 'Température, TA, FC, SpO2 toutes les 6h',
+      frequency: 'toutes les 6h',
+      scheduledTimes: '06:00,12:00,18:00,00:00',
+    },
+  });
+
+  const carePlan2 = await prisma.carePlanItem.create({
+    data: {
+      hospitalisationId: hosp1.id,
+      type: 'medication',
+      title: 'Quinine IV 600mg',
+      description: 'Administrer quinine en perfusion lente sur 4h',
+      medication: 'Quinine',
+      dosage: '600mg',
+      route: 'IV',
+      frequency: '3x/jour',
+      scheduledTimes: '08:00,16:00,00:00',
+    },
+  });
+
+  const carePlan3 = await prisma.carePlanItem.create({
+    data: {
+      hospitalisationId: hosp2.id,
+      type: 'vital_check',
+      title: 'Surveillance tensionnelle',
+      description: 'TA + FC toutes les 4h. Alerter si PAS > 180 ou PAD > 110.',
+      frequency: 'toutes les 4h',
+      scheduledTimes: '06:00,10:00,14:00,18:00,22:00',
+    },
+  });
+
+  const carePlan4 = await prisma.carePlanItem.create({
+    data: {
+      hospitalisationId: hosp2.id,
+      type: 'care_task',
+      title: 'Surveillance diurèse',
+      description: 'Mesurer et noter la diurèse toutes les 8h. Objectif > 500mL/8h.',
+      frequency: 'toutes les 8h',
+      scheduledTimes: '06:00,14:00,22:00',
+    },
+  });
+
+  // Care Plan Executions (nurse completed tasks)
+  await prisma.carePlanExecution.createMany({
+    data: [
+      {
+        carePlanItemId: carePlan1.id, nurseId: nurse1.id,
+        executedAt: new Date('2026-03-26T06:15:00Z'),
+        notes: 'T=39.2°C, TA=100/65, FC=110, SpO2=94%',
+        temperature: 39.2, systolic: 100, diastolic: 65, heartRate: 110, spO2: 94,
+      },
+      {
+        carePlanItemId: carePlan1.id, nurseId: nurse1.id,
+        executedAt: new Date('2026-03-26T12:10:00Z'),
+        notes: 'T=38.5°C, TA=105/70, FC=100, SpO2=95%',
+        temperature: 38.5, systolic: 105, diastolic: 70, heartRate: 100, spO2: 95,
+      },
+      {
+        carePlanItemId: carePlan2.id, nurseId: nurse1.id,
+        executedAt: new Date('2026-03-26T08:20:00Z'),
+        notes: 'Perfusion démarrée sans incident. Voie veineuse bras gauche.',
+      },
+      {
+        carePlanItemId: carePlan3.id, nurseId: nurse1.id,
+        executedAt: new Date('2026-03-28T10:15:00Z'),
+        notes: 'TA=150/95, FC=88. Patient dyspnéique au repos.',
+        systolic: 150, diastolic: 95, heartRate: 88,
+      },
+      {
+        carePlanItemId: carePlan4.id, nurseId: nurse1.id,
+        executedAt: new Date('2026-03-28T14:00:00Z'),
+        notes: 'Diurèse 8h = 350mL. Insuffisante. Médecin informé.',
+      },
+    ],
   });
 
   // ==========================================================================

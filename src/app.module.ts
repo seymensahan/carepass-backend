@@ -33,7 +33,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { HospitalisationsModule } from './hospitalisations/hospitalisations.module';
 import { NursesModule } from './nurses/nurses.module';
 import { GatewayModule } from './gateway/gateway.module';
-import { MessagingModule } from './messaging/messaging.module';
+// import { MessagingModule } from './messaging/messaging.module'; // TODO: messaging disabled — standalone feature not integrated into care flow
 import { SmsModule } from './sms/sms.module';
 
 @Module({
@@ -116,7 +116,7 @@ import { SmsModule } from './sms/sms.module';
     HospitalisationsModule,
     NursesModule,
     GatewayModule,
-    MessagingModule,
+    // MessagingModule, // disabled
   ],
 })
 export class AppModule {}
