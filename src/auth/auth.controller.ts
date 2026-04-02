@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, Headers, HttpCode, HttpStatus, UseGuards, 
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { InvitationsService } from '../institutions/invitations.service';
+import { EmailService } from '../email/email.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -17,6 +18,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly invitationsService: InvitationsService,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -231,5 +233,33 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Token temporaire invalide' })
   async resendOtp(@Body() body: { tempToken: string }) {
     return this.authService.resendOtp(body.tempToken);
+  }
+
+  /**
+   * POST /auth/contact
+   * Send a contact message. Public route.
+   */
+  @Post('contact')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Envoyer un message de contact' })
+  @ApiResponse({ status: 200, description: 'Message envoyé' })
+  async contact(@Body() body: { name: string; email: string; phone?: string; organization?: string; subject: string; message: string }) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <h2 style="color: #006B5A;">Nouveau message de contact — CARYPASS</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr><td style="padding: 8px; font-weight: bold; color: #333;">Nom</td><td style="padding: 8px;">${body.name}</td></tr>
+          <tr style="background: #f8f9fa;"><td style="padding: 8px; font-weight: bold; color: #333;">Email</td><td style="padding: 8px;">${body.email}</td></tr>
+          <tr><td style="padding: 8px; font-weight: bold; color: #333;">Téléphone</td><td style="padding: 8px;">${body.phone || '—'}</td></tr>
+          <tr style="background: #f8f9fa;"><td style="padding: 8px; font-weight: bold; color: #333;">Organisation</td><td style="padding: 8px;">${body.organization || '—'}</td></tr>
+          <tr><td style="padding: 8px; font-weight: bold; color: #333;">Sujet</td><td style="padding: 8px;">${body.subject}</td></tr>
+        </table>
+        <div style="margin-top: 16px; padding: 16px; background: #f8f9fa; border-radius: 8px;">
+          <p style="margin: 0; color: #333;">${body.message.replace(/\n/g, '<br>')}</p>
+        </div>
+      </div>
+    `;
+    await this.emailService.sendCustomEmail('contact@allotechafrica.com', `[CARYPASS Contact] ${body.subject}`, html);
+    return { success: true, message: 'Message envoyé avec succès' };
   }
 }

@@ -42,6 +42,7 @@ async function main() {
   await prisma.hospitalisationMedication.deleteMany();
   await prisma.hospitalisationVital.deleteMany();
   await prisma.hospitalisation.deleteMany();
+  await prisma.nurse.deleteMany();
   await prisma.doctor.deleteMany();
   await prisma.patient.deleteMany();
   await prisma.institution.deleteMany();
@@ -282,6 +283,17 @@ async function main() {
       city: 'Yaoundé',
       region: 'Centre',
       isVerified: false,
+    },
+  });
+
+  // -- Nurse Profile --
+  const nurse1 = await prisma.nurse.create({
+    data: {
+      userId: nurseUser.id,
+      institutionId: institution1.id,
+      specialty: 'Soins généraux',
+      licenseNumber: 'INF-CMR-2022-015',
+      isVerified: true,
     },
   });
 

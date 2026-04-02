@@ -156,8 +156,11 @@ export class PatientsService {
             email: true,
             phone: true,
             avatarUrl: true,
+            role: true,
           },
         },
+        emergencyContacts: true,
+        children: true,
       },
     });
 
