@@ -37,6 +37,11 @@ async function main() {
   await prisma.prescriptionItem.deleteMany();
   await prisma.prescription.deleteMany();
   await prisma.consultation.deleteMany();
+  await prisma.hospitalisationNurseAssignment.deleteMany();
+  await prisma.evolutionNote.deleteMany();
+  await prisma.hospitalisationMedication.deleteMany();
+  await prisma.hospitalisationVital.deleteMany();
+  await prisma.hospitalisation.deleteMany();
   await prisma.doctor.deleteMany();
   await prisma.patient.deleteMany();
   await prisma.institution.deleteMany();
