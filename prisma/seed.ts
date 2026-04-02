@@ -328,7 +328,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2025-01-15T10:00:00Z'),
+      date: new Date('2026-03-15T10:00:00Z'),
       type: 'consultation',
       motif: 'Fièvre persistante et maux de tête',
       symptoms: 'Fièvre 38.5°C, céphalées, fatigue',
@@ -350,7 +350,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2025-02-20T09:30:00Z'),
+      date: new Date('2026-03-20T09:30:00Z'),
       type: 'suivi',
       motif: 'Contrôle post-traitement paludisme',
       symptoms: null,
@@ -372,7 +372,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2025-04-10T14:00:00Z'),
+      date: new Date('2026-03-25T14:00:00Z'),
       type: 'consultation',
       motif: 'Douleurs abdominales',
       symptoms: 'Douleurs épigastriques, nausées',
@@ -394,7 +394,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2025-06-01T08:30:00Z'),
+      date: new Date('2026-03-31T08:30:00Z'),
       type: 'consultation',
       motif: 'Bilan annuel de santé',
       symptoms: null,
@@ -479,7 +479,7 @@ async function main() {
       title: 'Goutte épaisse — Recherche de Plasmodium',
       category: 'hematologie',
       fileUrl: '/uploads/lab/goutte-epaisse-amina-2025.pdf',
-      date: new Date('2025-01-15'),
+      date: new Date('2026-03-15'),
       notes: 'Prélèvement effectué en urgence. Résultat disponible en 2h.',
       status: 'validated',
       items: {
@@ -518,7 +518,7 @@ async function main() {
       title: 'Numération Formule Sanguine (NFS)',
       category: 'hematologie',
       fileUrl: '/uploads/lab/nfs-amina-2025.pdf',
-      date: new Date('2025-02-20'),
+      date: new Date('2026-03-20'),
       notes: 'Contrôle post-traitement antipaludéen. Valeurs normalisées.',
       status: 'validated',
       items: {
@@ -565,7 +565,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       name: 'COVID-19 (Pfizer-BioNTech)',
-      date: new Date('2023-06-15'),
+      date: new Date('2026-01-15'),
       lot: 'FC3456',
       location: 'Hôpital Central de Yaoundé',
       status: 'done',
@@ -577,7 +577,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       name: 'Fièvre Jaune',
-      date: new Date('2020-01-10'),
+      date: new Date('2025-06-10'),
       lot: 'YF2020-CM',
       location: 'Centre de vaccination Yaoundé',
       status: 'done',
@@ -589,7 +589,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       name: 'Hépatite B (Rappel)',
-      date: new Date('2025-08-01'),
+      date: new Date('2026-03-01'),
       status: 'scheduled',
       notes: 'Rappel prévu dans le cadre du calendrier vaccinal.',
     },
@@ -716,7 +716,7 @@ async function main() {
     data: {
       patientId: patient1.id,
       doctorId: doctor1.id,
-      date: new Date('2025-07-15T09:00:00Z'),
+      date: new Date('2026-04-02T09:00:00Z'),
       duration: 30,
       type: 'Suivi',
       reason: 'Suivi post-gastrite et bilan général',
@@ -728,7 +728,7 @@ async function main() {
     data: {
       patientId: patient2.id,
       doctorId: doctor2.id,
-      date: new Date('2025-07-20T14:00:00Z'),
+      date: new Date('2026-04-03T14:00:00Z'),
       duration: 45,
       type: 'Consultation',
       reason: 'Première consultation pédiatrique pour enfant',
