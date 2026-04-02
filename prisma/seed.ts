@@ -193,6 +193,20 @@ async function main() {
     },
   });
 
+  // -- Nurse User --
+  const nurseUser = await prisma.user.create({
+    data: {
+      email: 'infirmiere.test@carypass.cm',
+      passwordHash: hashedPassword,
+      role: 'nurse',
+      firstName: 'Florence',
+      lastName: 'Nkeng',
+      phone: '+237 699 300 004',
+      isActive: true,
+      emailVerifiedAt: new Date('2024-06-01'),
+    },
+  });
+
   // ==========================================================================
   // 7. INSTITUTIONS
   // ==========================================================================

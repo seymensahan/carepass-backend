@@ -318,7 +318,7 @@ export class InstitutionsService {
     // Consultations over time (group by day)
     const allConsultations = await this.prisma.consultation.findMany({
       where: { doctorId: { in: doctorIds }, date: { gte: startDate } },
-      select: { date: true, type: true, diagnosis: true, patientId: true },
+      select: { date: true, type: true, diagnosis: true, patientId: true, doctorId: true },
     });
 
     const byDate: Record<string, number> = {};
@@ -382,12 +382,19 @@ export class InstitutionsService {
         _count: { select: { consultations: true } },
       },
     });
+    // Count unique patients per doctor from consultations
+    const patientsByDoctor: Record<string, Set<string>> = {};
+    for (const c of allConsultations) {
+      if (!patientsByDoctor[c.doctorId]) patientsByDoctor[c.doctorId] = new Set();
+      patientsByDoctor[c.doctorId].add(c.patientId);
+    }
+
     const topDoctors = doctors
       .map(d => ({
         name: `Dr. ${d.user.firstName} ${d.user.lastName}`,
         specialty: d.specialty || 'Généraliste',
         consultations: d._count.consultations,
-        patients: 0,
+        patients: patientsByDoctor[d.id]?.size || 0,
         rating: 0,
       }))
       .sort((a, b) => b.consultations - a.consultations)
