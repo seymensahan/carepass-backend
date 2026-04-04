@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsEnum,
   IsDateString,
+  IsNumber,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender } from '@prisma/client';
@@ -31,6 +32,26 @@ export class CreateChildDto {
 
   @ApiPropertyOptional({ description: 'Groupe sanguin' })
   @IsOptional()
-  @IsString({ message: 'Le groupe sanguin doit être une chaîne de caractères' })
+  @IsString()
   bloodGroup?: string;
+
+  @ApiPropertyOptional({ description: 'Génotype (AA, AS, SS, AC, SC)' })
+  @IsOptional()
+  @IsString()
+  genotype?: string;
+
+  @ApiPropertyOptional({ description: 'Poids en kg' })
+  @IsOptional()
+  @IsNumber()
+  weightKg?: number;
+
+  @ApiPropertyOptional({ description: 'Taille en cm' })
+  @IsOptional()
+  @IsNumber()
+  heightCm?: number;
+
+  @ApiPropertyOptional({ description: 'Type de dépendant: child, elderly, disabled' })
+  @IsOptional()
+  @IsString()
+  dependentType?: string;
 }

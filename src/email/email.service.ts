@@ -314,8 +314,13 @@ export class EmailService {
       });
 
       if (error) {
+        // If the API key is invalid, switch to mock mode to avoid spamming logs
+        if ((error as any).name === 'validation_error' && (error as any).message?.includes('API key')) {
+          this.logger.warn(`Resend API key is invalid — switching to mock mode for remaining emails`);
+          this.resend = null;
+          return;
+        }
         this.logger.error(`Failed to send email to ${to}: ${JSON.stringify(error)}`);
-        this.logger.error(`Resend error details — name: ${(error as any).name}, message: ${(error as any).message}`);
         return;
       }
 

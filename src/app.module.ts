@@ -35,6 +35,7 @@ import { NursesModule } from './nurses/nurses.module';
 import { GatewayModule } from './gateway/gateway.module';
 // import { MessagingModule } from './messaging/messaging.module'; // TODO: messaging disabled — standalone feature not integrated into care flow
 import { SmsModule } from './sms/sms.module';
+import { VouchersModule } from './vouchers/vouchers.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { SmsModule } from './sms/sms.module';
     NursesModule,
     GatewayModule,
     // MessagingModule, // disabled
+    VouchersModule,
   ],
 })
 export class AppModule {}

@@ -180,6 +180,7 @@ model User {
   emailVerifiedAt  DateTime? @map("email_verified_at")
   twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
   twoFactorMethod  String?   @map("two_factor_method") // "sms"
+  isPromoter       Boolean   @default(false) @map("is_promoter")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -202,6 +203,8 @@ model User {
   patientConversations Conversation[]     @relation("PatientConversations")
   doctorConversations  Conversation[]     @relation("DoctorConversations")
   sentMessages         Message[]          @relation("SentMessages")
+  vouchersUsed         Voucher[]          @relation("VoucherUsedBy")
+  vouchersCreated      Voucher[]          @relation("VoucherCreatedBy")
 
   @@map("users")
 }
@@ -572,15 +575,19 @@ model MedicalCondition {
 // 13. Child
 // ---------------------------------------------------------------------------
 model Child {
-  id          String   @id @default(uuid())
-  parentId    String   @map("parent_id")
-  firstName   String   @map("first_name")
-  lastName    String   @map("last_name")
-  dateOfBirth DateTime @map("date_of_birth")
-  gender      Gender?
-  bloodGroup  String?  @map("blood_group")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  parentId      String   @map("parent_id")
+  firstName     String   @map("first_name")
+  lastName      String   @map("last_name")
+  dateOfBirth   DateTime @map("date_of_birth")
+  gender        Gender?
+  bloodGroup    String?  @map("blood_group")
+  genotype      String?
+  weightKg      Decimal? @map("weight_kg") @db.Decimal(5, 2)
+  heightCm      Decimal? @map("height_cm") @db.Decimal(5, 1)
+  dependentType String?  @default("child") @map("dependent_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   // Relations
   parent       Patient       @relation(fields: [parentId], references: [id], onDelete: Cascade)
@@ -1239,4 +1246,32 @@ model SystemSetting {
   updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("system_settings")
+}
+
+// ---------------------------------------------------------------------------
+// 38. Voucher
+// ---------------------------------------------------------------------------
+model Voucher {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  type            String    // "patient", "doctor", "nurse"
+  discountPercent Int       @default(100) @map("discount_percent")
+  durationMonths  Int       @default(6) @map("duration_months")
+  isUsed          Boolean   @default(false) @map("is_used")
+  usedById        String?   @map("used_by_id")
+  usedAt          DateTime? @map("used_at")
+  createdById     String    @map("created_by_id")
+  expiresAt       DateTime? @map("expires_at")
+  batchId         String?   @map("batch_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  usedBy    User?  @relation("VoucherUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+  createdBy User   @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+
+  @@index([code])
+  @@index([batchId])
+  @@index([type])
+  @@map("vouchers")
 }

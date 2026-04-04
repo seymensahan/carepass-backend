@@ -146,7 +146,7 @@ export class PatientsService {
   // ---------------------------------------------------------------------------
   async findByCarypassId(carypassId: string) {
     const patient = await this.prisma.patient.findUnique({
-      where: { carypassId },
+      where: { carypassId: carypassId },
       include: {
         user: {
           select: {

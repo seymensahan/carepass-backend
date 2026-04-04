@@ -65,6 +65,10 @@ export class ChildrenService {
         dateOfBirth: new Date(dto.dateOfBirth),
         gender: dto.gender,
         bloodGroup: dto.bloodGroup,
+        genotype: dto.genotype,
+        weightKg: dto.weightKg,
+        heightCm: dto.heightCm,
+        dependentType: dto.dependentType || 'child',
       },
     });
 
@@ -95,6 +99,10 @@ export class ChildrenService {
         ...(dto.dateOfBirth !== undefined && { dateOfBirth: new Date(dto.dateOfBirth) }),
         ...(dto.gender !== undefined && { gender: dto.gender }),
         ...(dto.bloodGroup !== undefined && { bloodGroup: dto.bloodGroup }),
+        ...(dto.genotype !== undefined && { genotype: dto.genotype }),
+        ...(dto.weightKg !== undefined && { weightKg: dto.weightKg }),
+        ...(dto.heightCm !== undefined && { heightCm: dto.heightCm }),
+        ...(dto.dependentType !== undefined && { dependentType: dto.dependentType }),
       },
     });
 
