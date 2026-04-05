@@ -45,7 +45,7 @@ export class HospitalisationsService {
       institutionId = doctor?.institutionId || null;
     }
 
-    return this.prisma.hospitalisation.create({
+    const hospitalisation = await this.prisma.hospitalisation.create({
       data: {
         patientId: resolvedPatientId,
         doctorId,
@@ -62,6 +62,26 @@ export class HospitalisationsService {
         doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
       },
     });
+
+    // Create care plan items if provided
+    if (dto.carePlanItems && dto.carePlanItems.length > 0) {
+      for (const item of dto.carePlanItems) {
+        const lower = item.task.toLowerCase();
+        const isMedication = lower.includes('mg') || lower.includes('injection') || lower.includes('perfusion');
+        const isVital = lower.includes('constante') || lower.includes('tension') || lower.includes('temperature') || lower.includes('pouls');
+        await this.prisma.carePlanItem.create({
+          data: {
+            hospitalisationId: hospitalisation.id,
+            type: isMedication ? 'medication' : isVital ? 'vital_check' : 'care_task',
+            title: item.task,
+            frequency: item.frequency || 'Au besoin',
+            description: `Priorité: ${item.priority || 'routine'}`,
+          },
+        });
+      }
+    }
+
+    return hospitalisation;
   }
 
   async findAll(user: any) {
