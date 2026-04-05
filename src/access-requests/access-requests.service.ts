@@ -142,15 +142,29 @@ export class AccessRequestsService {
       },
     });
 
+    const doctorName = `${accessRequest.doctor?.user?.firstName ?? ''} ${accessRequest.doctor?.user?.lastName ?? ''}`.trim();
+
     // Send email to the patient about the access request (non-blocking)
     if (accessRequest.patient?.user?.email) {
-      const doctorName = `${accessRequest.doctor?.user?.firstName ?? ''} ${accessRequest.doctor?.user?.lastName ?? ''}`.trim();
       this.emailService.sendAccessRequestEmail(
         accessRequest.patient.user.email,
         accessRequest.patient.user.firstName,
         doctorName,
         dto.reason || '',
       ).catch(() => {});
+    }
+
+    // Create in-app notification for the patient
+    if (accessRequest.patient?.user?.id) {
+      this.prisma.notification.create({
+        data: {
+          userId: accessRequest.patient.user.id,
+          type: 'info',
+          title: 'Demande d\'accès',
+          message: `Dr. ${doctorName} demande l'accès à votre dossier médical`,
+          link: '/access-requests/' + accessRequest.id,
+        },
+      }).catch(() => {});
     }
 
     return accessRequest;

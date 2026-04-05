@@ -211,12 +211,12 @@ export class AppointmentsService {
     });
 
     // Send appointment reminder email to the patient (non-blocking)
-    if (appointment.patient?.user?.email) {
-      const appointmentDate = new Date(appointment.date);
-      const dateStr = appointmentDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-      const timeStr = appointmentDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      const doctorName = `${appointment.doctor?.user?.firstName ?? ''} ${appointment.doctor?.user?.lastName ?? ''}`.trim();
+    const appointmentDate = new Date(appointment.date);
+    const dateStr = appointmentDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = appointmentDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const doctorName = `${appointment.doctor?.user?.firstName ?? ''} ${appointment.doctor?.user?.lastName ?? ''}`.trim();
 
+    if (appointment.patient?.user?.email) {
       this.emailService.sendAppointmentReminderEmail(
         appointment.patient.user.email,
         appointment.patient.user.firstName,
@@ -225,6 +225,33 @@ export class AppointmentsService {
         timeStr,
         'Voir les détails sur CARYPASS',
       ).catch(() => {});
+    }
+
+    // Create in-app notification for the patient
+    if (appointment.patient?.user?.id) {
+      this.prisma.notification.create({
+        data: {
+          userId: appointment.patient.user.id,
+          type: 'info',
+          title: 'Nouveau rendez-vous',
+          message: `Rendez-vous avec Dr. ${doctorName} le ${dateStr} à ${timeStr}`,
+          link: '/appointments/' + appointment.id,
+        },
+      }).catch(() => {});
+    }
+
+    // Create in-app notification for the doctor (if patient created the RDV)
+    if (role === 'patient' && appointment.doctor?.user?.id) {
+      const patientName = `${appointment.patient?.user?.firstName ?? ''} ${appointment.patient?.user?.lastName ?? ''}`.trim();
+      this.prisma.notification.create({
+        data: {
+          userId: appointment.doctor.user.id,
+          type: 'info',
+          title: 'Nouveau rendez-vous',
+          message: `${patientName} a pris rendez-vous pour le ${dateStr} à ${timeStr}`,
+          link: '/appointments/' + appointment.id,
+        },
+      }).catch(() => {});
     }
 
     return appointment;

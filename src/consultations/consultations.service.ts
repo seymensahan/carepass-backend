@@ -253,6 +253,20 @@ export class ConsultationsService {
       });
     });
 
+    // Create notification for patient
+    if (consultation?.patient?.user?.id) {
+      const docName = `${consultation.doctor?.user?.firstName ?? ''} ${consultation.doctor?.user?.lastName ?? ''}`.trim();
+      this.prisma.notification.create({
+        data: {
+          userId: consultation.patient.user.id,
+          type: 'info',
+          title: 'Nouvelle consultation',
+          message: `Dr. ${docName} a ajouté une consultation à votre dossier`,
+          link: '/consultations/' + consultation.id,
+        },
+      }).catch(() => {});
+    }
+
     return { success: true, data: consultation };
   }
 
