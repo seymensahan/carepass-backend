@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -13,6 +14,8 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly emailService: EmailService,
@@ -229,29 +232,38 @@ export class AppointmentsService {
 
     // Create in-app notification for the patient
     if (appointment.patient?.user?.id) {
-      this.prisma.notification.create({
-        data: {
-          userId: appointment.patient.user.id,
-          type: 'info',
-          title: 'Nouveau rendez-vous',
-          message: `Rendez-vous avec Dr. ${doctorName} le ${dateStr} à ${timeStr}`,
-          link: '/appointments/' + appointment.id,
-        },
-      }).catch(() => {});
+      try {
+        await this.prisma.notification.create({
+          data: {
+            userId: appointment.patient.user.id,
+            type: 'info',
+            title: 'Nouveau rendez-vous',
+            message: `Rendez-vous avec Dr. ${doctorName} le ${dateStr} à ${timeStr}`,
+            link: '/appointments/' + appointment.id,
+          },
+        });
+        this.logger.log(`Notification created for patient ${appointment.patient.user.id}`);
+      } catch (e) {
+        this.logger.error(`Failed to create patient notification: ${e}`);
+      }
     }
 
     // Create in-app notification for the doctor (if patient created the RDV)
     if (role === 'patient' && appointment.doctor?.user?.id) {
       const patientName = `${appointment.patient?.user?.firstName ?? ''} ${appointment.patient?.user?.lastName ?? ''}`.trim();
-      this.prisma.notification.create({
-        data: {
-          userId: appointment.doctor.user.id,
-          type: 'info',
-          title: 'Nouveau rendez-vous',
-          message: `${patientName} a pris rendez-vous pour le ${dateStr} à ${timeStr}`,
-          link: '/appointments/' + appointment.id,
-        },
-      }).catch(() => {});
+      try {
+        await this.prisma.notification.create({
+          data: {
+            userId: appointment.doctor.user.id,
+            type: 'info',
+            title: 'Nouveau rendez-vous',
+            message: `${patientName} a pris rendez-vous pour le ${dateStr} à ${timeStr}`,
+            link: '/appointments/' + appointment.id,
+          },
+        });
+      } catch (e) {
+        this.logger.error(`Failed to create doctor notification: ${e}`);
+      }
     }
 
     return appointment;

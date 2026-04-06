@@ -156,7 +156,7 @@ export class AccessRequestsService {
 
     // Create in-app notification for the patient
     if (accessRequest.patient?.user?.id) {
-      this.prisma.notification.create({
+      await this.prisma.notification.create({
         data: {
           userId: accessRequest.patient.user.id,
           type: 'info',
