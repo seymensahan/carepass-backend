@@ -12,6 +12,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { VouchersService } from './vouchers.service';
 import { GenerateVouchersDto, ValidateVoucherDto, RedeemVoucherDto } from './dto/generate-vouchers.dto';
@@ -19,6 +20,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('vouchers')
 @Controller('vouchers')
@@ -117,9 +119,23 @@ export class VouchersController {
   }
 
   // -------------------------------------------------------------------------
+  // POST /vouchers/validate-public — Public: validate a voucher code (no auth)
+  // Used during registration flow before user has a token
+  // -------------------------------------------------------------------------
+  @Post('validate-public')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Valider un code voucher (public, sans auth)' })
+  @ApiResponse({ status: 200, description: 'Voucher valide' })
+  validateVoucherPublic(@Body() dto: ValidateVoucherDto) {
+    return this.vouchersService.validateVoucherPublic(dto.code);
+  }
+
+  // -------------------------------------------------------------------------
   // POST /vouchers/validate — Authenticated: validate a voucher code
   // -------------------------------------------------------------------------
   @Post('validate')
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
@@ -136,6 +152,7 @@ export class VouchersController {
   // POST /vouchers/redeem — Authenticated: redeem a voucher
   // -------------------------------------------------------------------------
   @Post('redeem')
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
@@ -146,6 +163,19 @@ export class VouchersController {
     @Body() dto: RedeemVoucherDto,
   ) {
     return this.vouchersService.redeemVoucher(dto.code, userId);
+  }
+
+  // -------------------------------------------------------------------------
+  // POST /vouchers/fix-expired — Super-admin: fix vouchers stuck in expired state
+  // -------------------------------------------------------------------------
+  @Post('fix-expired')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Corriger les vouchers expires par bug timezone (super_admin)' })
+  fixExpiredVouchers() {
+    return this.vouchersService.fixExpiredSameDayVouchers();
   }
 
   // -------------------------------------------------------------------------

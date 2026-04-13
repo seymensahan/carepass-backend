@@ -24,6 +24,7 @@ enum Role {
   lab
   insurance
   super_admin
+  field_agent
 }
 
 enum Gender {
@@ -205,6 +206,8 @@ model User {
   sentMessages         Message[]          @relation("SentMessages")
   vouchersUsed         Voucher[]          @relation("VoucherUsedBy")
   vouchersCreated      Voucher[]          @relation("VoucherCreatedBy")
+  fieldAgent           FieldAgent?
+  vouchersAssigned     Voucher[]          @relation("VoucherAssignedByAgent")
 
   @@map("users")
 }
@@ -299,6 +302,9 @@ model Institution {
   email              String?
   logoUrl            String?         @map("logo_url")
   isVerified         Boolean         @default(false) @map("is_verified")
+  isSuspended        Boolean         @default(false) @map("is_suspended")
+  suspendedAt        DateTime?       @map("suspended_at")
+  suspensionReason   String?         @map("suspension_reason")
   adminUserId        String?         @unique @map("admin_user_id")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
@@ -312,6 +318,7 @@ model Institution {
   hospitalisations   Hospitalisation[]
   documents          InstitutionDocument[]
   invitations        Invitation[]
+  appointments       Appointment[]
 
   @@map("institutions")
 }
@@ -392,7 +399,7 @@ model DoctorInstitution {
 model Consultation {
   id         String             @id @default(uuid())
   patientId  String             @map("patient_id")
-  doctorId   String             @map("doctor_id")
+  doctorId   String?            @map("doctor_id")
   date       DateTime
   type       ConsultationType   @default(consultation)
   motif      String
@@ -405,15 +412,28 @@ model Consultation {
   createdAt  DateTime           @default(now()) @map("created_at")
   updatedAt  DateTime           @updatedAt @map("updated_at")
 
+  // Nurse-initiated consultation fields
+  initiatedByNurseId   String?   @map("initiated_by_nurse_id")
+  transferredByNurseId String?   @map("transferred_by_nurse_id")
+  transferredAt        DateTime? @map("transferred_at")
+
+  // External doctor (not in CaryPass system)
+  externalDoctorName      String?  @map("external_doctor_name")
+  externalDoctorSpecialty String?  @map("external_doctor_specialty")
+  externalDoctorPhone     String?  @map("external_doctor_phone")
+
   // Relations
-  patient         Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor          Doctor           @relation(fields: [doctorId], references: [id])
-  prescriptions   Prescription[]
-  insuranceClaims InsuranceClaim[]
+  patient            Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor             Doctor?          @relation(fields: [doctorId], references: [id])
+  initiatedByNurse   Nurse?           @relation("NurseInitiatedConsultations", fields: [initiatedByNurseId], references: [id])
+  transferredByNurse Nurse?           @relation("NurseTransferredConsultations", fields: [transferredByNurseId], references: [id])
+  prescriptions      Prescription[]
+  insuranceClaims    InsuranceClaim[]
 
   @@index([patientId])
   @@index([doctorId])
   @@index([date])
+  @@index([initiatedByNurseId])
   @@map("consultations")
 }
 
@@ -424,7 +444,7 @@ model Prescription {
   id             String             @id @default(uuid())
   consultationId String             @map("consultation_id")
   patientId      String             @map("patient_id")
-  doctorId       String             @map("doctor_id")
+  doctorId       String?            @map("doctor_id")
   notes          String?
   status         PrescriptionStatus @default(active)
   createdAt      DateTime           @default(now()) @map("created_at")
@@ -433,7 +453,7 @@ model Prescription {
   // Relations
   consultation Consultation     @relation(fields: [consultationId], references: [id], onDelete: Cascade)
   patient      Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor       Doctor           @relation(fields: [doctorId], references: [id])
+  doctor       Doctor?          @relation(fields: [doctorId], references: [id])
   items        PrescriptionItem[]
 
   @@index([consultationId])
@@ -641,7 +661,8 @@ model AccessGrant {
 // ---------------------------------------------------------------------------
 model AccessRequest {
   id               String              @id @default(uuid())
-  doctorId         String              @map("doctor_id")
+  doctorId         String?             @map("doctor_id")
+  nurseId          String?             @map("nurse_id")
   patientId        String              @map("patient_id")
   patientCarypassId String             @map("patient_carepass_id")
   reason           String?
@@ -652,10 +673,12 @@ model AccessRequest {
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
   // Relations
-  doctor  Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  nurse   Nurse?   @relation(fields: [nurseId], references: [id], onDelete: Cascade)
+  patient Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@index([doctorId])
+  @@index([nurseId])
   @@index([patientId])
   @@map("access_requests")
 }
@@ -664,24 +687,27 @@ model AccessRequest {
 // 17. Appointment
 // ---------------------------------------------------------------------------
 model Appointment {
-  id        String            @id @default(uuid())
-  patientId String            @map("patient_id")
-  doctorId  String            @map("doctor_id")
-  date      DateTime
-  duration  Int               @default(30)
-  type      String?
-  reason    String?
-  status    AppointmentStatus @default(scheduled)
-  notes     String?
-  createdAt DateTime          @default(now()) @map("created_at")
-  updatedAt DateTime          @updatedAt @map("updated_at")
+  id            String            @id @default(uuid())
+  patientId     String            @map("patient_id")
+  doctorId      String            @map("doctor_id")
+  institutionId String?           @map("institution_id")
+  date          DateTime
+  duration      Int               @default(30)
+  type          String?
+  reason        String?
+  status        AppointmentStatus @default(scheduled)
+  notes         String?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   // Relations
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor      Doctor       @relation(fields: [doctorId], references: [id])
+  institution Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
 
   @@index([patientId])
   @@index([doctorId])
+  @@index([institutionId])
   @@index([date])
   @@map("appointments")
 }
@@ -964,6 +990,8 @@ model Payment {
   id               String        @id @default(uuid())
   userId           String        @map("user_id")
   subscriptionId   String?       @map("subscription_id")
+  planId           String?       @map("plan_id")
+  period           String?       // "yearly" or "monthly"
   amount           Decimal       @db.Decimal(12, 2)
   currency         String        @default("XAF")
   paymentMethod    String        @default("pawapay") @map("payment_method")
@@ -982,6 +1010,24 @@ model Payment {
   @@index([userId])
   @@index([externalId])
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// PendingRegistration — stores registration data until payment is confirmed
+// ---------------------------------------------------------------------------
+model PendingRegistration {
+  id            String   @id @default(uuid())
+  depositId     String   @unique @map("deposit_id")
+  planId        String   @map("plan_id")
+  period        String   @default("yearly")
+  amount        Decimal  @db.Decimal(12, 2)
+  registrationData Json  @map("registration_data") // all form data as JSON
+  status        String   @default("pending") // pending, completed, failed, expired
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([depositId])
+  @@map("pending_registrations")
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,7 +1138,7 @@ model Nurse {
   userId        String    @unique @map("user_id")
   institutionId String    @map("institution_id")
   specialty     String?   // ex: "soins généraux", "pédiatrie", "urgences"
-  licenseNumber String?   @map("license_number")
+  licenseNumber String?   @unique @map("license_number")
   isVerified    Boolean   @default(false) @map("is_verified")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -1102,8 +1148,11 @@ model Nurse {
   institution         Institution               @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   vitalsRecorded      HospitalisationVital[]
   medicationsGiven    HospitalisationMedication[]
-  carePlanExecutions      CarePlanExecution[]
-  hospitalisationAssignments HospitalisationNurseAssignment[]
+  carePlanExecutions             CarePlanExecution[]
+  hospitalisationAssignments     HospitalisationNurseAssignment[]
+  initiatedConsultations         Consultation[] @relation("NurseInitiatedConsultations")
+  transferredConsultations       Consultation[] @relation("NurseTransferredConsultations")
+  accessRequests                 AccessRequest[]
 
   @@index([institutionId])
   @@index([userId])
@@ -1252,26 +1301,153 @@ model SystemSetting {
 // 38. Voucher
 // ---------------------------------------------------------------------------
 model Voucher {
-  id              String    @id @default(uuid())
-  code            String    @unique
-  type            String    // "patient", "doctor", "nurse"
-  discountPercent Int       @default(100) @map("discount_percent")
-  durationMonths  Int       @default(6) @map("duration_months")
-  isUsed          Boolean   @default(false) @map("is_used")
-  usedById        String?   @map("used_by_id")
-  usedAt          DateTime? @map("used_at")
-  createdById     String    @map("created_by_id")
-  expiresAt       DateTime? @map("expires_at")
-  batchId         String?   @map("batch_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  code              String    @unique
+  type              String    // "patient", "doctor", "nurse"
+  discountPercent   Int       @default(100) @map("discount_percent")
+  durationMonths    Int       @default(6) @map("duration_months")
+  isUsed            Boolean   @default(false) @map("is_used")
+  usedById          String?   @map("used_by_id")
+  usedAt            DateTime? @map("used_at")
+  createdById       String    @map("created_by_id")
+  assignedByAgentId String?   @map("assigned_by_agent_id")
+  onboardingId      String?   @map("onboarding_id")
+  expiresAt         DateTime? @map("expires_at")
+  batchId           String?   @map("batch_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  usedBy    User?  @relation("VoucherUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
-  createdBy User   @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+  usedBy          User?           @relation("VoucherUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+  createdBy       User            @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+  assignedByAgent User?           @relation("VoucherAssignedByAgent", fields: [assignedByAgentId], references: [id], onDelete: SetNull)
+  onboarding      UserOnboarding? @relation(fields: [onboardingId], references: [id], onDelete: SetNull)
 
   @@index([code])
   @@index([batchId])
   @@index([type])
+  @@index([assignedByAgentId])
   @@map("vouchers")
+}
+
+// ============================================================================
+// FIELD AGENTS — Terrain campaign management
+// ============================================================================
+
+enum FieldVisitStatus {
+  planned
+  in_progress
+  completed
+  cancelled
+}
+
+enum FieldVisitOutcome {
+  interested
+  not_interested
+  follow_up
+  onboarded
+}
+
+enum OnboardingStatus {
+  pending
+  in_progress
+  completed
+  rejected
+}
+
+enum DoctorSpecialty {
+  dentiste
+  gynecologue
+  pediatre
+  generaliste
+  ophtalmologue
+}
+
+// ---------------------------------------------------------------------------
+// FieldAgent
+// ---------------------------------------------------------------------------
+model FieldAgent {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  zone      String?
+  city      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fieldVisits FieldVisit[]
+  onboardings UserOnboarding[]
+
+  @@index([userId])
+  @@map("field_agents")
+}
+
+// ---------------------------------------------------------------------------
+// FieldVisit — terrain visits by agents
+// ---------------------------------------------------------------------------
+model FieldVisit {
+  id          String           @id @default(uuid())
+  agentId     String           @map("agent_id")
+  targetName  String           @map("target_name")
+  targetPhone String?          @map("target_phone")
+  targetRole  String           @map("target_role") // "patient", "doctor", "nurse"
+  location    String?          // adresse ou lieu de la visite
+  city        String?
+  status      FieldVisitStatus @default(planned)
+  outcome     FieldVisitOutcome?
+  notes       String?
+  scheduledAt DateTime?        @map("scheduled_at")
+  checkInLat  Float?           @map("check_in_lat")
+  checkInLng  Float?           @map("check_in_lng")
+  checkInAt   DateTime?        @map("check_in_at")
+  checkOutLat Float?           @map("check_out_lat")
+  checkOutLng Float?           @map("check_out_lng")
+  checkOutAt  DateTime?        @map("check_out_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  agent       FieldAgent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  onboardings UserOnboarding[]
+
+  @@index([agentId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("field_visits")
+}
+
+// ---------------------------------------------------------------------------
+// UserOnboarding — tracking user registration by field agents
+// ---------------------------------------------------------------------------
+model UserOnboarding {
+  id              String           @id @default(uuid())
+  agentId         String           @map("agent_id")
+  fieldVisitId    String?          @map("field_visit_id")
+  userName        String           @map("user_name")
+  userPhone       String           @map("user_phone")
+  userEmail       String?          @map("user_email")
+  userRole        String           @map("user_role") // "patient", "doctor", "nurse"
+  doctorSpecialty DoctorSpecialty?  @map("doctor_specialty")
+  city            String?
+  zone            String?
+  status          OnboardingStatus @default(pending)
+  appDownloaded   Boolean          @default(false) @map("app_downloaded")
+  accountCreated  Boolean          @default(false) @map("account_created")
+  voucherRedeemed Boolean          @default(false) @map("voucher_redeemed")
+  rejectionReason String?          @map("rejection_reason")
+  completedAt     DateTime?        @map("completed_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  agent      FieldAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  fieldVisit FieldVisit? @relation(fields: [fieldVisitId], references: [id], onDelete: SetNull)
+  vouchers   Voucher[]
+
+  @@index([agentId])
+  @@index([userRole])
+  @@index([status])
+  @@map("user_onboardings")
 }

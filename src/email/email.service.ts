@@ -1,14 +1,35 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { Resend } from 'resend';
+import type { EmailJobType } from './email.processor';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend | null = null;
   private readonly fromEmail: string;
+  private bypassQueue = false;
 
-  constructor(private readonly configService: ConfigService) {
+  /**
+   * When set to true, `tryEnqueue` will short-circuit and return false so
+   * callers fall back to the synchronous send path. Used by the BullMQ
+   * processor to avoid an infinite loop (processor -> service -> queue).
+   */
+  setBypassQueue(bypass: boolean): void {
+    this.bypassQueue = bypass;
+  }
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() @InjectQueue('emails') private readonly emailQueue?: Queue,
+  ) {
+    if (this.emailQueue) {
+      this.logger.log('Email queue detected — emails will be processed asynchronously via BullMQ');
+    } else {
+      this.logger.log('No email queue — emails will be sent synchronously');
+    }
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     if (apiKey) {
       this.resend = new Resend(apiKey);
@@ -20,7 +41,29 @@ export class EmailService {
     this.logger.log(`Email FROM address: ${this.fromEmail}`);
   }
 
+  /**
+   * Try to push an email onto the BullMQ queue. Returns true if enqueued,
+   * false if no queue is configured or enqueue failed (caller should fall
+   * back to synchronous send).
+   */
+  private async tryEnqueue(type: EmailJobType, to: string, data: Record<string, any>): Promise<boolean> {
+    if (this.bypassQueue) return false;
+    if (!this.emailQueue) return false;
+    try {
+      await this.emailQueue.add(
+        'send-email',
+        { type, to, data },
+        { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: true, removeOnFail: 100 },
+      );
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Failed to enqueue email (${type}) — sending synchronously: ${err?.message || err}`);
+      return false;
+    }
+  }
+
   async sendPasswordResetEmail(to: string, firstName: string, resetToken: string): Promise<void> {
+    if (await this.tryEnqueue('password-reset', to, { firstName, resetToken })) return;
     const resetUrl = `${this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000')}/reset-password?token=${resetToken}`;
 
     const html = `
@@ -44,6 +87,7 @@ export class EmailService {
   }
 
   async sendEmailVerification(to: string, firstName: string, verificationToken: string): Promise<void> {
+    if (await this.tryEnqueue('email-verification', to, { firstName, verificationToken })) return;
     const verifyUrl = `${this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000')}/verify-email?token=${verificationToken}`;
 
     const html = `
@@ -66,6 +110,7 @@ export class EmailService {
   }
 
   async sendWelcomeEmail(to: string, firstName: string): Promise<void> {
+    if (await this.tryEnqueue('welcome', to, { firstName })) return;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #0066CC;">Bienvenue sur CARYPASS !</h2>
@@ -94,6 +139,7 @@ export class EmailService {
     role: string,
     inviteUrl: string,
   ): Promise<void> {
+    if (await this.tryEnqueue('invitation', to, { firstName, institutionName, inviterName, role, inviteUrl })) return;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #0066CC;">CARYPASS — Invitation</h2>
@@ -121,6 +167,7 @@ export class EmailService {
     time: string,
     location: string,
   ): Promise<void> {
+    if (await this.tryEnqueue('appointment-reminder', to, { firstName, doctorName, date, time, location })) return;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #0066CC;">CARYPASS — Rappel de rendez-vous</h2>

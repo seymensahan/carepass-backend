@@ -44,6 +44,23 @@ function buildCode(type: string): string {
   return `CP-${prefix}-${randomAlphanumeric(6)}`;
 }
 
+/**
+ * Parse a voucher expiration date.
+ * If the input is a date-only string (YYYY-MM-DD), interpret it as END of day local time
+ * to avoid the voucher being marked expired the same day it is created.
+ * Otherwise, parse as a full ISO datetime.
+ */
+function parseExpiresAt(input?: string): Date | null {
+  if (!input) return null;
+  const dateOnlyMatch = /^\d{4}-\d{2}-\d{2}$/.test(input);
+  if (dateOnlyMatch) {
+    // End of day in local server time, then converted to UTC by the Date constructor
+    const [year, month, day] = input.split('-').map(Number);
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+  return new Date(input);
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -68,22 +85,33 @@ export class VouchersService {
     const batchId = uuidv4();
     const codes: string[] = [];
 
-    // Generate unique codes with collision check
+    // OPTIMIZED: Generate a candidate pool in-memory and check the DB for collisions
+    // in a SINGLE query (findMany with `in`) instead of N sequential findUnique calls.
     const existingCodes = new Set<string>();
-    const maxAttempts = count * 3;
-    let attempts = 0;
+    const maxRounds = 3;
+    for (let round = 0; round < maxRounds && codes.length < count; round++) {
+      const needed = count - codes.length;
+      const candidates: string[] = [];
+      // Over-provision 2x to reduce collision risk
+      for (let i = 0; i < needed * 2; i++) {
+        const c = buildCode(type);
+        if (!existingCodes.has(c)) candidates.push(c);
+      }
+      if (candidates.length === 0) continue;
 
-    while (codes.length < count && attempts < maxAttempts) {
-      attempts++;
-      const code = buildCode(type);
-      if (existingCodes.has(code)) continue;
+      // Single query collision check
+      const collisions = await this.prisma.voucher.findMany({
+        where: { code: { in: candidates } },
+        select: { code: true },
+      });
+      const collisionSet = new Set(collisions.map((v) => v.code));
 
-      // Check DB for collision
-      const exists = await this.prisma.voucher.findUnique({ where: { code } });
-      if (exists) continue;
-
-      existingCodes.add(code);
-      codes.push(code);
+      for (const c of candidates) {
+        if (codes.length >= count) break;
+        if (collisionSet.has(c) || existingCodes.has(c)) continue;
+        existingCodes.add(c);
+        codes.push(c);
+      }
     }
 
     if (codes.length < count) {
@@ -102,7 +130,7 @@ export class VouchersService {
       isUsed: false,
       createdById,
       batchId,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      expiresAt: parseExpiresAt(expiresAt),
     }));
 
     await this.prisma.voucher.createMany({ data });
@@ -203,7 +231,35 @@ export class VouchersService {
   }
 
   // -------------------------------------------------------------------------
-  // VALIDATE VOUCHER
+  // VALIDATE VOUCHER (public — no user context, just checks code validity)
+  // -------------------------------------------------------------------------
+  async validateVoucherPublic(code: string) {
+    const voucher = await this.prisma.voucher.findUnique({ where: { code: code.trim().toUpperCase() } });
+
+    if (!voucher) {
+      throw new NotFoundException('Code voucher invalide');
+    }
+
+    if (voucher.isUsed) {
+      throw new BadRequestException('Ce voucher a deja ete utilise');
+    }
+
+    if (voucher.expiresAt && new Date(voucher.expiresAt) < new Date()) {
+      const expiredDate = new Date(voucher.expiresAt).toLocaleDateString('fr-FR');
+      throw new BadRequestException(`Ce voucher a expire le ${expiredDate}`);
+    }
+
+    return {
+      valid: true,
+      code: voucher.code,
+      type: voucher.type,
+      discountPercent: voucher.discountPercent,
+      durationMonths: voucher.durationMonths,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // VALIDATE VOUCHER (authenticated — checks code + user role match)
   // -------------------------------------------------------------------------
   async validateVoucher(code: string, userId: string) {
     const voucher = await this.prisma.voucher.findUnique({ where: { code: code.trim().toUpperCase() } });
@@ -217,7 +273,8 @@ export class VouchersService {
     }
 
     if (voucher.expiresAt && new Date(voucher.expiresAt) < new Date()) {
-      throw new BadRequestException('Ce voucher a expire');
+      const expiredDate = new Date(voucher.expiresAt).toLocaleDateString('fr-FR');
+      throw new BadRequestException(`Ce voucher a expire le ${expiredDate}`);
     }
 
     // Check that the voucher type matches the user's role
@@ -269,19 +326,25 @@ export class VouchersService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Utilisateur non trouve');
 
-    // Find appropriate plan based on role and voucher type
-    let planSlug: string;
+    // Find appropriate plan based on voucher type.
+    // Try multiple slug variants for compatibility with existing seed data.
+    let planSlugs: string[];
     if (voucher.type === 'doctor') {
-      planSlug = 'doctor_premium';
+      planSlugs = ['medecin-premium', 'doctor_premium', 'doctor-premium'];
     } else if (voucher.type === 'nurse') {
-      planSlug = 'nurse';
+      // Nurses don't have a dedicated plan — use the patient plan (they still get free access)
+      planSlugs = ['patient', 'nurse'];
     } else {
-      planSlug = 'patient';
+      planSlugs = ['patient'];
     }
 
-    let plan = await this.prisma.plan.findUnique({ where: { slug: planSlug } });
+    let plan = null;
+    for (const slug of planSlugs) {
+      plan = await this.prisma.plan.findUnique({ where: { slug } });
+      if (plan) break;
+    }
 
-    // Fallback: try to find any active plan if the slug doesn't exist yet
+    // Fallback: try to find any active plan if none of the slugs match
     if (!plan) {
       plan = await this.prisma.plan.findFirst({
         where: { isActive: true },
@@ -370,6 +433,52 @@ export class VouchersService {
 
     await this.prisma.voucher.delete({ where: { id } });
     return { message: 'Voucher supprime' };
+  }
+
+  // -------------------------------------------------------------------------
+  // FIX EXPIRED-SAME-DAY VOUCHERS (one-shot maintenance)
+  // -------------------------------------------------------------------------
+  /**
+   * Some vouchers were generated with `expiresAt` set to a date-only string,
+   * which JS parses as midnight UTC and makes them expired the same day.
+   * This method removes the expiresAt on any unused voucher whose expiresAt
+   * is today (UTC) at exactly midnight, restoring them to "no expiration".
+   */
+  async fixExpiredSameDayVouchers() {
+    const now = new Date();
+    const startOfTodayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const yesterdayMidnightUtc = new Date(startOfTodayUtc);
+    yesterdayMidnightUtc.setUTCDate(yesterdayMidnightUtc.getUTCDate() - 1);
+
+    // Find unused vouchers whose expiresAt is exactly midnight UTC of any day
+    // and is in the past
+    const candidates = await this.prisma.voucher.findMany({
+      where: {
+        isUsed: false,
+        expiresAt: { lt: now },
+      },
+    });
+
+    let fixed = 0;
+    for (const v of candidates) {
+      if (!v.expiresAt) continue;
+      const d = new Date(v.expiresAt);
+      // Detect midnight-UTC dates (the bug signature)
+      if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
+        // Push expiresAt to end of that day local
+        const fixedDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999);
+        // If still in the past after fix, just clear it
+        const newExpiresAt = fixedDate < now ? null : fixedDate;
+        await this.prisma.voucher.update({
+          where: { id: v.id },
+          data: { expiresAt: newExpiresAt },
+        });
+        fixed++;
+      }
+    }
+
+    this.logger.log(`Fix vouchers: ${fixed} voucher(s) corriges`);
+    return { fixed };
   }
 
   // -------------------------------------------------------------------------

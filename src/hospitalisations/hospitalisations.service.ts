@@ -10,10 +10,47 @@ import { AddVitalDto } from './dto/add-vital.dto';
 import { AddMedicationDto } from './dto/add-medication.dto';
 import { AddEvolutionNoteDto } from './dto/add-evolution-note.dto';
 import { CreateCarePlanItemDto } from './dto/create-care-plan-item.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class HospitalisationsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  /**
+   * Notify all assigned nurses of a hospitalisation about a new task / care plan item.
+   */
+  private async notifyAssignedNurses(hospitalisationId: string, taskTitle: string) {
+    const assignments = await this.prisma.hospitalisationNurseAssignment.findMany({
+      where: { hospitalisationId },
+      include: {
+        nurse: { include: { user: { select: { id: true } } } },
+      },
+    });
+
+    const hosp = await this.prisma.hospitalisation.findUnique({
+      where: { id: hospitalisationId },
+      include: {
+        patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+    const patientName = `${hosp?.patient?.user?.firstName ?? ''} ${hosp?.patient?.user?.lastName ?? ''}`.trim();
+
+    await Promise.all(
+      assignments.map((a) =>
+        a.nurse.user?.id
+          ? this.notificationsService.create(a.nurse.user.id, {
+              type: 'info',
+              title: 'Nouvelle tâche de soin',
+              message: `${taskTitle} — Patient: ${patientName}`,
+              link: `/nurse/hospitalisations/${hospitalisationId}`,
+            }).catch(() => {})
+          : Promise.resolve(),
+      ),
+    );
+  }
 
   private async getDoctorId(userId: string): Promise<string> {
     const doctor = await this.prisma.doctor.findUnique({ where: { userId } });
@@ -63,25 +100,97 @@ export class HospitalisationsService {
       },
     });
 
-    // Create care plan items if provided
+    // Create care plan items if provided — optimized to a single createMany (N+1 fix)
     if (dto.carePlanItems && dto.carePlanItems.length > 0) {
-      for (const item of dto.carePlanItems) {
-        const lower = item.task.toLowerCase();
-        const isMedication = lower.includes('mg') || lower.includes('injection') || lower.includes('perfusion');
-        const isVital = lower.includes('constante') || lower.includes('tension') || lower.includes('temperature') || lower.includes('pouls');
-        await this.prisma.carePlanItem.create({
-          data: {
+      await this.prisma.carePlanItem.createMany({
+        data: dto.carePlanItems.map((item) => {
+          const lower = item.task.toLowerCase();
+          const isMedication = lower.includes('mg') || lower.includes('injection') || lower.includes('perfusion');
+          const isVital = lower.includes('constante') || lower.includes('tension') || lower.includes('temperature') || lower.includes('pouls');
+          return {
             hospitalisationId: hospitalisation.id,
-            type: isMedication ? 'medication' : isVital ? 'vital_check' : 'care_task',
+            type: (isMedication ? 'medication' : isVital ? 'vital_check' : 'care_task') as any,
             title: item.task,
             frequency: item.frequency || 'Au besoin',
             description: `Priorité: ${item.priority || 'routine'}`,
-          },
+          };
+        }),
+      });
+    }
+
+    // Assign nurses if provided — optimized to batch validation + batch upsert (N+1 fix)
+    if (dto.nurseIds && dto.nurseIds.length > 0 && institutionId) {
+      const patientName = `${hospitalisation.patient?.user?.firstName ?? ''} ${hospitalisation.patient?.user?.lastName ?? ''}`.trim();
+      const doctorName = `${hospitalisation.doctor?.user?.firstName ?? ''} ${hospitalisation.doctor?.user?.lastName ?? ''}`.trim();
+      const room = hospitalisation.room
+        ? ` (chambre ${hospitalisation.room}${hospitalisation.bed ? ` - lit ${hospitalisation.bed}` : ''})`
+        : '';
+
+      // Fetch all valid nurses in one query instead of 1-per-nurse
+      const validNurses = await this.prisma.nurse.findMany({
+        where: { id: { in: dto.nurseIds }, institutionId },
+        include: { user: { select: { id: true } } },
+      });
+
+      // Batch-create assignments (skipDuplicates replaces per-item upsert)
+      if (validNurses.length > 0) {
+        await this.prisma.hospitalisationNurseAssignment.createMany({
+          data: validNurses.map((n) => ({
+            hospitalisationId: hospitalisation.id,
+            nurseId: n.id,
+          })),
+          skipDuplicates: true,
         });
+
+        // Notify each nurse (notifications require per-user calls)
+        await Promise.all(
+          validNurses.map((nurse) =>
+            nurse.user?.id
+              ? this.notificationsService.create(
+                  nurse.user.id,
+                  {
+                    type: 'info',
+                    title: 'Nouvelle affectation',
+                    message: `Vous avez été assigné(e) à l'hospitalisation de ${patientName}${room}. Médecin: Dr. ${doctorName}.`,
+                    link: `/nurse/hospitalisations/${hospitalisation.id}`,
+                  },
+                ).catch(() => {})
+              : Promise.resolve(),
+          ),
+        );
       }
     }
 
     return hospitalisation;
+  }
+
+  /**
+   * Get nurses available for assignment (same institution as doctor).
+   */
+  async getAvailableNursesForDoctor(userId: string) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { userId },
+      select: { institutionId: true },
+    });
+    if (!doctor || !doctor.institutionId) {
+      return [];
+    }
+
+    const nurses = await this.prisma.nurse.findMany({
+      where: { institutionId: doctor.institutionId },
+      include: {
+        user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return nurses.map((n) => ({
+      id: n.id,
+      firstName: n.user.firstName,
+      lastName: n.user.lastName,
+      specialty: n.specialty,
+      avatarUrl: n.user.avatarUrl,
+    }));
   }
 
   async findAll(user: any) {
@@ -99,6 +208,58 @@ export class HospitalisationsService {
       },
       orderBy: { admissionDate: 'desc' },
     });
+  }
+
+  /**
+   * List hospitalisations for the connected patient.
+   */
+  async findMineForPatient(userId: string) {
+    const patient = await this.prisma.patient.findUnique({ where: { userId } });
+    if (!patient) throw new NotFoundException('Profil patient non trouvé');
+
+    return this.prisma.hospitalisation.findMany({
+      where: { patientId: patient.id },
+      include: {
+        doctor: {
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        institution: { select: { name: true, city: true } },
+        vitalSigns: { orderBy: { recordedAt: 'desc' }, take: 1 },
+      },
+      orderBy: { admissionDate: 'desc' },
+    });
+  }
+
+  /**
+   * Detail of a single hospitalisation for the connected patient.
+   * Verifies the hospitalisation actually belongs to this patient.
+   */
+  async findMineDetailForPatient(id: string, userId: string) {
+    const patient = await this.prisma.patient.findUnique({ where: { userId } });
+    if (!patient) throw new NotFoundException('Profil patient non trouvé');
+
+    const hosp = await this.prisma.hospitalisation.findUnique({
+      where: { id },
+      include: {
+        doctor: {
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        institution: { select: { name: true, city: true, phone: true } },
+        vitalSigns: { orderBy: { recordedAt: 'desc' } },
+        medications: { orderBy: { administeredAt: 'desc' } },
+        evolutionNotes: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+
+    if (!hosp) throw new NotFoundException('Hospitalisation non trouvée');
+    if (hosp.patientId !== patient.id) {
+      throw new ForbiddenException('Accès non autorisé');
+    }
+    return hosp;
   }
 
   async findActive(user: any) {
@@ -243,7 +404,7 @@ export class HospitalisationsService {
 
   async addCarePlanItem(hospitalisationId: string, dto: CreateCarePlanItemDto, user: any) {
     await this.findOne(hospitalisationId, user); // verify doctor ownership
-    return this.prisma.carePlanItem.create({
+    const item = await this.prisma.carePlanItem.create({
       data: {
         hospitalisationId,
         type: dto.type as any,
@@ -257,28 +418,43 @@ export class HospitalisationsService {
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       },
     });
+
+    // Notify all assigned nurses about the new task
+    await this.notifyAssignedNurses(hospitalisationId, dto.title);
+
+    return item;
   }
 
   async addCarePlanItems(hospitalisationId: string, items: CreateCarePlanItemDto[], user: any) {
     await this.findOne(hospitalisationId, user);
-    const created = [];
-    for (const dto of items) {
-      const item = await this.prisma.carePlanItem.create({
-        data: {
-          hospitalisationId,
-          type: dto.type as any,
-          title: dto.title,
-          description: dto.description,
-          medication: dto.medication,
-          dosage: dto.dosage,
-          route: dto.route as any,
-          frequency: dto.frequency,
-          scheduledTimes: dto.scheduledTimes,
-          endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-        },
-      });
-      created.push(item);
+    // OPTIMIZED: batched per-item creates into a single $transaction round-trip (avoids N sequential await roundtrips)
+    const created = await this.prisma.$transaction(
+      items.map((dto) =>
+        this.prisma.carePlanItem.create({
+          data: {
+            hospitalisationId,
+            type: dto.type as any,
+            title: dto.title,
+            description: dto.description,
+            medication: dto.medication,
+            dosage: dto.dosage,
+            route: dto.route as any,
+            frequency: dto.frequency,
+            scheduledTimes: dto.scheduledTimes,
+            endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+          },
+        }),
+      ),
+    );
+
+    // Notify all assigned nurses once about the new tasks (single notification grouping all)
+    if (items.length > 0) {
+      const summary = items.length === 1
+        ? items[0].title
+        : `${items.length} nouvelles tâches ajoutées`;
+      await this.notifyAssignedNurses(hospitalisationId, summary);
     }
+
     return created;
   }
 

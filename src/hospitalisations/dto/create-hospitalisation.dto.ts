@@ -33,4 +33,10 @@ export class CreateHospitalisationDto {
   @ValidateNested({ each: true })
   @Type(() => CarePlanItemDto)
   carePlanItems?: CarePlanItemDto[];
+
+  @ApiPropertyOptional({ description: 'IDs des infirmier(e)s à assigner à cette hospitalisation', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  nurseIds?: string[];
 }

@@ -259,7 +259,7 @@ export class ExportService {
         status: c.status,
         severity: c.severity || '',
         patientName: `${c.patient.user.firstName} ${c.patient.user.lastName}`,
-        doctorName: `${c.doctor.user.firstName} ${c.doctor.user.lastName}`,
+        doctorName: c.doctor?.user ? `${c.doctor.user.firstName} ${c.doctor.user.lastName}` : (c as any).externalDoctorName || 'N/A',
       }));
       const csv = await this.generateCsv(rows);
       return { csv, filename: 'consultations.csv' };
@@ -457,7 +457,7 @@ export class ExportService {
         .text(`Date : ${consultation.date.toLocaleDateString('fr-FR')}`)
         .text(`Type : ${consultation.type}`)
         .text(`Statut : ${consultation.status}`)
-        .text(`Medecin : Dr. ${consultation.doctor.user.firstName} ${consultation.doctor.user.lastName}`)
+        .text(`Medecin : ${consultation.doctor?.user ? `Dr. ${consultation.doctor.user.firstName} ${consultation.doctor.user.lastName}` : (consultation as any).externalDoctorName || 'N/A'}`)
         .text(`Motif : ${consultation.motif}`)
         .text(`Symptomes : ${consultation.symptoms || 'Non renseigne'}`)
         .text(`Diagnostic : ${consultation.diagnosis || 'En attente'}`)

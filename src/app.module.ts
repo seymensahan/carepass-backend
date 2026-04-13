@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { SentryModule, SentryGlobalFilter } from '@sentry/nestjs/setup';
 import * as Joi from 'joi';
 import { DatabaseModule } from './database/database.module';
+import { AppCacheModule } from './common/cache/cache.module';
+import { QueueModule } from './common/queue/queue.module';
 import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -36,6 +40,7 @@ import { GatewayModule } from './gateway/gateway.module';
 // import { MessagingModule } from './messaging/messaging.module'; // TODO: messaging disabled — standalone feature not integrated into care flow
 import { SmsModule } from './sms/sms.module';
 import { VouchersModule } from './vouchers/vouchers.module';
+import { FieldAgentsModule } from './field-agents/field-agents.module';
 
 @Module({
   imports: [
@@ -79,11 +84,24 @@ import { VouchersModule } from './vouchers/vouchers.module';
       },
     }),
 
-    // Rate limiting
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // Rate limiting — three named throttlers provide layered protection:
+    //   - short: burst protection (3 req/s)
+    //   - medium: 20 req/10s
+    //   - long: 100 req/min
+    // Endpoints can opt into stricter limits via @Throttle({ short: ... }).
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1000, limit: 3 },
+      { name: 'medium', ttl: 10000, limit: 20 },
+      { name: 'long', ttl: 60000, limit: 100 },
+    ]),
+
+    // Sentry — no-op if SENTRY_DSN is not set (see src/instrument.ts).
+    SentryModule.forRoot(),
 
     // Infrastructure
     DatabaseModule,
+    AppCacheModule,
+    QueueModule.register(),
     EmailModule,
     SmsModule,
 
@@ -119,6 +137,21 @@ import { VouchersModule } from './vouchers/vouchers.module';
     GatewayModule,
     // MessagingModule, // disabled
     VouchersModule,
+    FieldAgentsModule,
+  ],
+  providers: [
+    // Global Sentry exception filter. Safe to register even when Sentry
+    // is disabled — it falls through to the next filter in that case.
+    {
+      provide: APP_FILTER,
+      useClass: SentryGlobalFilter,
+    },
+    // Global throttler guard. Endpoints can override per-route limits
+    // with @Throttle({ ... }) or skip with @SkipThrottle().
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

@@ -237,21 +237,29 @@ export class DashboardService {
       }),
     ]);
 
-    // Monthly activity for the last 6 months
+    // Monthly activity for the last 6 months — optimized to 1 query instead of 12 (N+1 fix)
     const monthlyActivity: { month: string; consultations: number; patients: number }[] = [];
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const endOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const monthConsultations = doctorIds.length > 0
+      ? await this.prisma.consultation.findMany({
+          where: {
+            doctorId: { in: doctorIds },
+            date: { gte: sixMonthsAgo, lt: endOfCurrentMonth },
+          },
+          select: { date: true, patientId: true },
+        })
+      : [];
+
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-      const [mConsult, mPatients] = await Promise.all([
-        this.prisma.consultation.count({
-          where: { doctorId: { in: doctorIds }, date: { gte: d, lt: end } },
-        }),
-        this.prisma.consultation.findMany({
-          where: { doctorId: { in: doctorIds }, date: { gte: d, lt: end } },
-          select: { patientId: true },
-          distinct: ['patientId'],
-        }).then(r => r.length),
-      ]);
+      const monthRows = monthConsultations.filter(
+        (c) => c.date >= d && c.date < end,
+      );
+      const mConsult = monthRows.length;
+      const mPatients = new Set(monthRows.map((c) => c.patientId)).size;
       monthlyActivity.push({
         month: d.toLocaleDateString('fr-FR', { month: 'short' }),
         consultations: mConsult,
@@ -483,17 +491,30 @@ export class DashboardService {
       }),
     ]);
 
-    // Build user growth data from last 6 months
-    const userGrowth = await Promise.all(
-      months.map(async (m) => {
-        const [patients, doctors, institutions] = await Promise.all([
-          this.prisma.patient.count({ where: { createdAt: { lt: m.end } } }),
-          this.prisma.doctor.count({ where: { createdAt: { lt: m.end } } }),
-          this.prisma.institution.count({ where: { createdAt: { lt: m.end } } }),
-        ]);
-        return { month: m.label, patients, doctors, institutions };
+    // Build user growth data from last 6 months — optimized: fetch createdAt once per entity
+    // then compute cumulative counts in memory (3 queries instead of 18, N+1 fix)
+    const lastMonthEnd = months[months.length - 1].end;
+    const [allPatientDates, allDoctorDates, allInstitutionDates] = await Promise.all([
+      this.prisma.patient.findMany({
+        where: { createdAt: { lt: lastMonthEnd } },
+        select: { createdAt: true },
       }),
-    );
+      this.prisma.doctor.findMany({
+        where: { createdAt: { lt: lastMonthEnd } },
+        select: { createdAt: true },
+      }),
+      this.prisma.institution.findMany({
+        where: { createdAt: { lt: lastMonthEnd } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const userGrowth = months.map((m) => ({
+      month: m.label,
+      patients: allPatientDates.filter((p) => p.createdAt < m.end).length,
+      doctors: allDoctorDates.filter((d) => d.createdAt < m.end).length,
+      institutions: allInstitutionDates.filter((i) => i.createdAt < m.end).length,
+    }));
 
     // Registrations by region
     const patientsByRegion = await this.prisma.patient.groupBy({

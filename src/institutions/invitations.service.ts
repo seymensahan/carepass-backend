@@ -30,6 +30,34 @@ export class InvitationsService {
       throw new NotFoundException('Institution non trouvée');
     }
 
+    // Check maxDoctors limit from subscription plan
+    if (role === 'doctor') {
+      // Find the institution admin's active subscription to get the plan limits
+      const subscription = await this.prisma.subscription.findFirst({
+        where: {
+          userId: institution.adminUserId!,
+          status: 'active',
+        },
+        include: { plan: true },
+      });
+
+      if (subscription?.plan?.maxDoctors) {
+        // Count current doctors + pending doctor invitations
+        const [currentDoctors, pendingInvitations] = await Promise.all([
+          this.prisma.doctor.count({ where: { institutionId } }),
+          this.prisma.invitation.count({ where: { institutionId, role: 'doctor' as any, status: 'pending' } }),
+        ]);
+        const totalDoctors = currentDoctors + pendingInvitations;
+        if (totalDoctors >= subscription.plan.maxDoctors) {
+          throw new ConflictException(
+            `Limite atteinte : votre plan "${subscription.plan.name}" autorise ${subscription.plan.maxDoctors} médecin(s) maximum. ` +
+            `Vous avez actuellement ${currentDoctors} médecin(s) et ${pendingInvitations} invitation(s) en attente. ` +
+            `Passez à un plan supérieur pour inviter plus de médecins.`
+          );
+        }
+      }
+    }
+
     // Check if user already exists with this email
     const existingUser = await this.prisma.user.findUnique({ where: { email } });
     if (existingUser) {

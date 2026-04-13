@@ -18,6 +18,7 @@ import { ConsultationsService } from './consultations.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { ConsultationFilterDto } from './dto/consultation-filter.dto';
+import { NurseInitiateConsultationDto, TransferConsultationDto } from './dto/nurse-consultation.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -43,6 +44,41 @@ export class ConsultationsController {
   @ApiResponse({ status: 200, description: 'Liste des consultations' })
   findAll(@Query() filters: ConsultationFilterDto, @CurrentUser() user: any) {
     return this.consultationsService.findAll(filters, user);
+  }
+
+  // ─── NURSE ENDPOINTS (must be BEFORE :id routes) ───
+
+  /**
+   * GET /consultations/available-doctors
+   */
+  @Get('available-doctors')
+  @Roles('nurse')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Liste des docteurs disponibles pour transfert' })
+  getAvailableDoctors(@CurrentUser() user: any) {
+    return this.consultationsService.getAvailableDoctors(user.id);
+  }
+
+  /**
+   * GET /consultations/nurse-initiated
+   */
+  @Get('nurse-initiated')
+  @Roles('nurse')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Consultations initiées par cette infirmière' })
+  getNurseConsultations(@CurrentUser() user: any) {
+    return this.consultationsService.findNurseConsultations(user.id);
+  }
+
+  /**
+   * POST /consultations/nurse-initiate
+   */
+  @Post('nurse-initiate')
+  @Roles('nurse')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Infirmière: initier consultation + paramètres vitaux' })
+  nurseInitiate(@Body() dto: NurseInitiateConsultationDto, @CurrentUser() user: any) {
+    return this.consultationsService.nurseInitiate(user.id, dto);
   }
 
   /**
@@ -139,6 +175,21 @@ export class ConsultationsController {
    * GET /consultations/:id/pdf
    * Generate a PDF report for a consultation.
    */
+  /**
+   * PATCH /consultations/:id/transfer
+   */
+  @Patch(':id/transfer')
+  @Roles('nurse')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Infirmière: transférer consultation vers un docteur' })
+  nurseTransfer(
+    @Param('id') id: string,
+    @Body() dto: TransferConsultationDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.consultationsService.nurseTransfer(user.id, id, dto);
+  }
+
   @Get(':id/pdf')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generer le PDF d\'une consultation' })

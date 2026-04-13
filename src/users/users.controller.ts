@@ -5,6 +5,7 @@ import {
   Post,
   Delete,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -12,9 +13,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -90,6 +93,72 @@ export class UsersController {
   }
 
   /**
+   * POST /users/ensure-patient-profile
+   * Ensure the user has a Patient profile (for doctors/nurses wanting to manage
+   * their own medical records).
+   */
+  @Post('ensure-patient-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Créer un profil patient pour soi-même (docteurs/infirmières)' })
+  async ensurePatientProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: { dateOfBirth?: string; gender?: string; bloodGroup?: string },
+  ) {
+    return this.usersService.ensurePatientProfile(userId, dto);
+  }
+
+  /**
+   * POST /users/add-doctor-role
+   * Allow a user to also become a doctor (creates Doctor profile, pending verification).
+   */
+  @Post('add-doctor-role')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Devenir médecin (en plus du rôle actuel)' })
+  async addDoctorRole(
+    @CurrentUser('id') userId: string,
+    @Body() dto: {
+      specialty: string;
+      licenseNumber: string;
+      institutionId?: string;
+      bio?: string;
+      city?: string;
+      region?: string;
+    },
+  ) {
+    return this.usersService.addDoctorRole(userId, dto);
+  }
+
+  /**
+   * POST /users/add-nurse-role
+   * Allow a patient to also become a nurse (creates Nurse profile).
+   */
+  @Post('add-nurse-role')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Devenir infirmier (en plus du rôle patient)' })
+  @ApiResponse({ status: 200, description: 'Profil infirmier créé' })
+  async addNurseRole(
+    @CurrentUser('id') userId: string,
+    @Body() dto: { institutionId: string; specialty: string; licenseNumber: string },
+  ) {
+    return this.usersService.addNurseRole(userId, dto);
+  }
+
+  /**
+   * POST /users/switch-role
+   * Switch the active role (must be in availableRoles).
+   */
+  @Post('switch-role')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Basculer entre les rôles disponibles' })
+  @ApiResponse({ status: 200, description: 'Rôle actif changé' })
+  async switchRole(
+    @CurrentUser('id') userId: string,
+    @Body() body: { role: string },
+  ) {
+    return this.usersService.switchActiveRole(userId, body.role);
+  }
+
+  /**
    * DELETE /users/account
    * Soft-delete the authenticated user's account.
    */
@@ -100,5 +169,38 @@ export class UsersController {
   @ApiResponse({ status: 401, description: 'Non autorisé' })
   async deleteAccount(@CurrentUser('id') userId: string) {
     return this.usersService.deleteAccount(userId);
+  }
+
+  // ─── Super Admin routes ───
+
+  /**
+   * PATCH /users/:id
+   * Update a user (super_admin only). Used for suspend/ban.
+   */
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Modifier un utilisateur (super_admin)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'utilisateur' })
+  async adminUpdateUser(
+    @Param('id') id: string,
+    @Body() body: { isActive?: boolean; isBanned?: boolean },
+  ) {
+    return this.usersService.adminUpdateUser(id, body);
+  }
+
+  /**
+   * DELETE /users/:id
+   * Delete a user (super_admin only).
+   */
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer un utilisateur (super_admin)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'utilisateur' })
+  async adminDeleteUser(@Param('id') id: string) {
+    return this.usersService.adminDeleteUser(id);
   }
 }

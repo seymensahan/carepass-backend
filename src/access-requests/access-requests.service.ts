@@ -9,12 +9,14 @@ import { PrismaClient } from '@prisma/client';
 import { CreateAccessRequestDto } from './dto/create-access-request.dto';
 import { AccessRequestFilterDto } from './dto/access-request-filter.dto';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AccessRequestsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly emailService: EmailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -83,6 +85,7 @@ export class AccessRequestsService {
       where: { id },
       include: {
         doctor: { include: { user: true, institution: true } },
+        nurse: { include: { user: true } },
         patient: { include: { user: true } },
       },
     });
@@ -95,16 +98,30 @@ export class AccessRequestsService {
   }
 
   /**
-   * Create a new access request from a doctor to a patient.
+   * Create a new access request from a doctor or nurse to a patient.
    * Looks up the patient by their CaryPass ID.
    */
-  async create(doctorUserId: string, dto: CreateAccessRequestDto) {
-    // Find doctor profile from user ID
-    const doctor = await this.prisma.doctor.findUnique({
-      where: { userId: doctorUserId },
-    });
-    if (!doctor) {
-      throw new NotFoundException('Profil médecin non trouvé');
+  async create(userId: string, dto: CreateAccessRequestDto) {
+    // Determine if requester is a doctor or nurse
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur non trouvé');
+
+    let doctorId: string | null = null;
+    let nurseId: string | null = null;
+    let requesterName = '';
+
+    if (user.role === 'doctor') {
+      const doctor = await this.prisma.doctor.findUnique({ where: { userId } });
+      if (!doctor) throw new NotFoundException('Profil médecin non trouvé');
+      doctorId = doctor.id;
+      requesterName = `Dr. ${user.firstName} ${user.lastName}`;
+    } else if (user.role === 'nurse') {
+      const nurse = await this.prisma.nurse.findUnique({ where: { userId } });
+      if (!nurse) throw new NotFoundException('Profil infirmier non trouvé');
+      nurseId = nurse.id;
+      requesterName = `Inf. ${user.firstName} ${user.lastName}`;
+    } else {
+      throw new ForbiddenException('Seuls les médecins et infirmiers peuvent demander l\'accès');
     }
 
     // Find patient by CaryPass ID
@@ -115,10 +132,10 @@ export class AccessRequestsService {
       throw new NotFoundException('Patient non trouvé avec cet identifiant CaryPass');
     }
 
-    // Check no pending request already exists for this doctor + patient
+    // Check no pending request already exists
     const existingPending = await this.prisma.accessRequest.findFirst({
       where: {
-        doctorId: doctor.id,
+        ...(doctorId ? { doctorId } : { nurseId }),
         patientId: patient.id,
         status: 'pending',
       },
@@ -131,40 +148,40 @@ export class AccessRequestsService {
 
     const accessRequest = await this.prisma.accessRequest.create({
       data: {
-        doctorId: doctor.id,
+        doctorId,
+        nurseId,
         patientId: patient.id,
         patientCarypassId: dto.patientCarypassId,
         reason: dto.reason,
       },
       include: {
         doctor: { include: { user: true, institution: true } },
+        nurse: { include: { user: true } },
         patient: { include: { user: true } },
       },
     });
 
-    const doctorName = `${accessRequest.doctor?.user?.firstName ?? ''} ${accessRequest.doctor?.user?.lastName ?? ''}`.trim();
-
-    // Send email to the patient about the access request (non-blocking)
+    // Send email (non-blocking)
     if (accessRequest.patient?.user?.email) {
       this.emailService.sendAccessRequestEmail(
         accessRequest.patient.user.email,
         accessRequest.patient.user.firstName,
-        doctorName,
+        requesterName,
         dto.reason || '',
       ).catch(() => {});
     }
 
-    // Create in-app notification for the patient
+    // In-app notification for the patient
     if (accessRequest.patient?.user?.id) {
-      await this.prisma.notification.create({
-        data: {
-          userId: accessRequest.patient.user.id,
+      await this.notificationsService.create(
+        accessRequest.patient.user.id,
+        {
           type: 'info',
           title: 'Demande d\'accès',
-          message: `Dr. ${doctorName} demande l'accès à votre dossier médical`,
+          message: `${requesterName} demande l'accès à votre dossier médical`,
           link: '/access-requests/' + accessRequest.id,
         },
-      }).catch(() => {});
+      ).catch(() => {});
     }
 
     return accessRequest;
@@ -183,6 +200,7 @@ export class AccessRequestsService {
       include: {
         patient: { include: { user: true } },
         doctor: true,
+        nurse: { include: { user: true } },
       },
     });
 
@@ -216,24 +234,29 @@ export class AccessRequestsService {
         },
       }),
 
-      // Auto-create AccessGrant
-      this.prisma.accessGrant.create({
-        data: {
-          patientId: request.patientId,
-          doctorId: request.doctorId,
-        },
-      }),
+      // Auto-create AccessGrant (only for doctors)
+      ...(request.doctorId ? [
+        this.prisma.accessGrant.create({
+          data: {
+            patientId: request.patientId,
+            doctorId: request.doctorId,
+          },
+        }),
+      ] : []),
+    ]);
 
-      // Notify the doctor
-      this.prisma.notification.create({
-        data: {
-          userId: request.doctor.userId,
+    // Notify the requester (doctor or nurse)
+    const requesterUserId = request.doctor?.userId ?? request.nurse?.userId;
+    if (requesterUserId) {
+      await this.notificationsService.create(
+        requesterUserId,
+        {
           title: 'Accès approuvé',
           message: `${patientName} a approuvé votre demande d'accès`,
           type: 'success',
         },
-      }),
-    ]);
+      ).catch(() => {});
+    }
 
     // Send email to the doctor about the granted access (non-blocking)
     if (updatedRequest.doctor?.user?.email) {
@@ -260,6 +283,7 @@ export class AccessRequestsService {
       include: {
         patient: { include: { user: true } },
         doctor: true,
+        nurse: { include: { user: true } },
       },
     });
 
@@ -291,17 +315,20 @@ export class AccessRequestsService {
           patient: { include: { user: true } },
         },
       }),
+    ]);
 
-      // Notify the doctor
-      this.prisma.notification.create({
-        data: {
-          userId: request.doctor.userId,
+    // Notify the requester (doctor or nurse)
+    const requesterUserId = request.doctor?.userId ?? request.nurse?.userId;
+    if (requesterUserId) {
+      await this.notificationsService.create(
+        requesterUserId,
+        {
           title: 'Accès refusé',
           message: `${patientName} a refusé votre demande d'accès`,
           type: 'warning',
         },
-      }),
-    ]);
+      ).catch(() => {});
+    }
 
     return updatedRequest;
   }

@@ -304,4 +304,126 @@ export class NursesService {
       room: item.hospitalisation?.room || '',
     }));
   }
+
+  // =========================================================================
+  // My patients — consultations initiated + approved access requests
+  // =========================================================================
+  async getMyPatients(userId: string) {
+    const nurse = await this.getNurse(userId);
+
+    // Get all unique patients that this nurse has interacted with:
+    // 1. Via consultations she initiated
+    // 2. Via approved access requests
+    const [consultations, approvedRequests] = await Promise.all([
+      this.prisma.consultation.findMany({
+        where: { initiatedByNurseId: nurse.id },
+        select: {
+          patientId: true,
+          date: true,
+          patient: {
+            include: {
+              user: {
+                select: { firstName: true, lastName: true, avatarUrl: true, phone: true },
+              },
+            },
+          },
+        },
+        orderBy: { date: 'desc' },
+      }),
+      this.prisma.accessRequest.findMany({
+        where: { nurseId: nurse.id, status: 'approved' },
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: { firstName: true, lastName: true, avatarUrl: true, phone: true },
+              },
+            },
+          },
+        },
+        orderBy: { respondedAt: 'desc' },
+      }),
+    ]);
+
+    // Deduplicate by patientId, keeping most recent interaction
+    const patientMap = new Map<string, any>();
+
+    for (const c of consultations) {
+      if (!patientMap.has(c.patientId)) {
+        patientMap.set(c.patientId, {
+          id: c.patient.id,
+          carypassId: c.patient.carypassId,
+          firstName: c.patient.user.firstName,
+          lastName: c.patient.user.lastName,
+          phone: c.patient.user.phone,
+          avatarUrl: c.patient.user.avatarUrl,
+          lastInteraction: c.date,
+          source: 'consultation',
+        });
+      }
+    }
+
+    for (const r of approvedRequests) {
+      if (!patientMap.has(r.patientId)) {
+        patientMap.set(r.patientId, {
+          id: r.patient.id,
+          carypassId: r.patient.carypassId,
+          firstName: r.patient.user.firstName,
+          lastName: r.patient.user.lastName,
+          phone: r.patient.user.phone,
+          avatarUrl: r.patient.user.avatarUrl,
+          lastInteraction: r.respondedAt || r.createdAt,
+          source: 'access_request',
+        });
+      }
+    }
+
+    return Array.from(patientMap.values()).sort(
+      (a, b) => new Date(b.lastInteraction).getTime() - new Date(a.lastInteraction).getTime(),
+    );
+  }
+
+  // =========================================================================
+  // Patient lookup by CaryPass ID (for QR scan)
+  // =========================================================================
+  async lookupPatientByCarypassId(carypassId: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { carypassId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            avatarUrl: true,
+          },
+        },
+        allergies: { select: { id: true, name: true, severity: true } },
+        medicalConditions: {
+          where: { status: 'active' },
+          select: { id: true, name: true, notes: true },
+        },
+      },
+    });
+
+    if (!patient) {
+      throw new NotFoundException('Patient non trouvé avec cet identifiant CaryPass');
+    }
+
+    return {
+      id: patient.id,
+      carypassId: patient.carypassId,
+      firstName: patient.user.firstName,
+      lastName: patient.user.lastName,
+      phone: patient.user.phone,
+      avatarUrl: patient.user.avatarUrl,
+      dateOfBirth: patient.dateOfBirth,
+      gender: patient.gender,
+      bloodGroup: patient.bloodGroup,
+      genotype: patient.genotype,
+      allergies: patient.allergies,
+      medicalConditions: patient.medicalConditions,
+    };
+  }
 }

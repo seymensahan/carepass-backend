@@ -20,6 +20,11 @@ export class CreateAppointmentDto {
   @IsString({ message: 'L\'identifiant du médecin doit être une chaîne de caractères' })
   doctorId?: string;
 
+  @ApiPropertyOptional({ description: 'ID de l\'institution où aura lieu le rendez-vous' })
+  @IsOptional()
+  @IsString({ message: 'L\'identifiant de l\'institution doit être une chaîne de caractères' })
+  institutionId?: string;
+
   @ApiProperty({ description: 'Date du rendez-vous (ISO 8601)' })
   @IsDateString({}, { message: 'La date doit être au format ISO 8601' })
   @IsNotEmpty({ message: 'La date est requise' })

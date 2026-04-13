@@ -10,9 +10,11 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('payments')
@@ -22,9 +24,10 @@ export class PaymentsController {
 
   /**
    * POST /payments/initiate
-   * Initiate a mobile money payment for a subscription.
+   * Initiate a mobile money payment for a subscription (authenticated user).
    */
   @Post('initiate')
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
@@ -38,10 +41,25 @@ export class PaymentsController {
   }
 
   /**
+   * POST /payments/initiate-registration
+   * PUBLIC: Initiate payment for a new registration (no account created yet).
+   * The account is created only when PawaPay webhook confirms the payment.
+   */
+  @Post('initiate-registration')
+  @Public()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Initier un paiement pour inscription (public, pas de compte créé)' })
+  @ApiResponse({ status: 201, description: 'Session de paiement créée' })
+  initiateRegistrationPayment(@Body() body: any) {
+    return this.paymentsService.initiateRegistrationPayment(body);
+  }
+
+  /**
    * POST /payments/webhook
    * Pawapay webhook callback (public route).
    */
   @Post('webhook')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Webhook Pawapay (callback de paiement)' })
   @ApiResponse({ status: 200, description: 'Webhook traité' })

@@ -2,20 +2,36 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
 
 @Injectable()
 export class AccessGrantsService {
+  private readonly logger = new Logger(AccessGrantsService.name);
+
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
-   * List all active access grants for a given patient.
+   * Build a Prisma "active and not expired" filter.
+   */
+  private notExpiredFilter() {
+    return {
+      isActive: true,
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gte: new Date() } },
+      ],
+    };
+  }
+
+  /**
+   * List all active (non-expired) access grants for a given patient.
    */
   async findAll(patientId: string) {
     return this.prisma.accessGrant.findMany({
-      where: { patientId, isActive: true },
+      where: { patientId, ...this.notExpiredFilter() },
       include: {
         doctor: {
           include: { user: true },
@@ -23,6 +39,28 @@ export class AccessGrantsService {
       },
       orderBy: { grantedAt: 'desc' },
     });
+  }
+
+  /**
+   * Auto-revoke all access grants whose expiresAt has passed.
+   * Called on app startup and every 24 hours.
+   */
+  async revokeExpiredGrants() {
+    const now = new Date();
+    const result = await this.prisma.accessGrant.updateMany({
+      where: {
+        isActive: true,
+        expiresAt: { lt: now, not: null },
+      },
+      data: {
+        isActive: false,
+        revokedAt: now,
+      },
+    });
+    if (result.count > 0) {
+      this.logger.log(`${result.count} access grant(s) expirés révoqués automatiquement`);
+    }
+    return { revoked: result.count };
   }
 
   /**
@@ -85,7 +123,7 @@ export class AccessGrantsService {
    */
   async findPatients(doctorId: string) {
     const grants = await this.prisma.accessGrant.findMany({
-      where: { doctorId, isActive: true },
+      where: { doctorId, ...this.notExpiredFilter() },
       include: {
         patient: {
           include: {
@@ -113,7 +151,7 @@ export class AccessGrantsService {
    */
   async findDoctors(patientId: string) {
     const grants = await this.prisma.accessGrant.findMany({
-      where: { patientId, isActive: true },
+      where: { patientId, ...this.notExpiredFilter() },
       include: {
         doctor: {
           include: { user: true },

@@ -88,4 +88,19 @@ export class NursesController {
   getPendingTasks(@CurrentUser() user: any) {
     return this.service.getPendingTasks(user.id);
   }
+
+  @Get('patient-lookup/:carypassId')
+  @ApiOperation({ summary: 'Rechercher un patient par CaryPass ID (scan QR)' })
+  patientLookup(
+    @Param('carypassId') carypassId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.lookupPatientByCarypassId(carypassId);
+  }
+
+  @Get('my-patients')
+  @ApiOperation({ summary: 'Patients pris en charge par cette infirmière' })
+  getMyPatients(@CurrentUser() user: any) {
+    return this.service.getMyPatients(user.id);
+  }
 }

@@ -3,6 +3,7 @@ import {
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
@@ -16,7 +17,9 @@ import { ConfigService } from '@nestjs/config';
   cors: { origin: '*' },
   namespace: '/',
 })
-export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class EventsGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -27,6 +30,50 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Attach the Socket.IO Redis adapter when REDIS_HOST is configured so
+   * events broadcast across all backend instances. Silently falls back to
+   * the default in-memory adapter if Redis is unreachable.
+   */
+  async afterInit(server: Server): Promise<void> {
+    const redisHost = process.env.REDIS_HOST;
+    if (!redisHost) {
+      this.logger.log('Socket.IO using in-memory adapter (REDIS_HOST not set)');
+      return;
+    }
+
+    try {
+      const { createAdapter } = await import('@socket.io/redis-adapter');
+      const { createClient } = await import('redis');
+
+      const pubClient = createClient({
+        socket: {
+          host: redisHost,
+          port: Number(process.env.REDIS_PORT || 6379),
+        },
+        password: process.env.REDIS_PASSWORD || undefined,
+      });
+      const subClient = pubClient.duplicate();
+
+      pubClient.on('error', (err) =>
+        this.logger.warn(`Socket.IO Redis pub client error: ${err?.message || err}`),
+      );
+      subClient.on('error', (err) =>
+        this.logger.warn(`Socket.IO Redis sub client error: ${err?.message || err}`),
+      );
+
+      await Promise.all([pubClient.connect(), subClient.connect()]);
+      server.adapter(createAdapter(pubClient, subClient));
+      this.logger.log(
+        `Socket.IO Redis adapter attached (${redisHost}:${process.env.REDIS_PORT || 6379})`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Socket.IO Redis adapter failed (${err?.message || err}) — using in-memory adapter`,
+      );
+    }
+  }
 
   async handleConnection(client: Socket) {
     try {

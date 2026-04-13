@@ -234,6 +234,33 @@ export class InstitutionsController {
   }
 
   /**
+   * PATCH /institutions/:id/suspend
+   * Suspendre une institution. Reserve au super_admin.
+   */
+  @Patch(':id/suspend')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Suspendre une institution (role: super_admin)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  @ApiResponse({ status: 200, description: 'Institution suspendue' })
+  suspend(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.institutionsService.suspend(id, body.reason);
+  }
+
+  /**
+   * PATCH /institutions/:id/unsuspend
+   * Lever la suspension d'une institution. Reserve au super_admin.
+   */
+  @Patch(':id/unsuspend')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lever la suspension d\'une institution (role: super_admin)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'institution' })
+  unsuspend(@Param('id') id: string) {
+    return this.institutionsService.unsuspend(id);
+  }
+
+  /**
    * DELETE /institutions/:id
    * Supprimer une institution. Reserve au super_admin.
    */

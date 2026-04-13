@@ -44,6 +44,20 @@ export class HospitalisationsController {
     return this.service.findAll(user);
   }
 
+  @Get('mine')
+  @Roles('patient')
+  @ApiOperation({ summary: 'Lister les hospitalisations du patient connecté' })
+  findMine(@CurrentUser() user: any) {
+    return this.service.findMineForPatient(user.id);
+  }
+
+  @Get('mine/:id')
+  @Roles('patient')
+  @ApiOperation({ summary: 'Détail d\'une de mes hospitalisations' })
+  findMineDetail(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.findMineDetailForPatient(id, user.id);
+  }
+
   @Get('active')
   @Roles('doctor')
   @ApiOperation({ summary: 'Hospitalisations en cours' })
@@ -56,6 +70,13 @@ export class HospitalisationsController {
   @ApiOperation({ summary: 'Statistiques des hospitalisations' })
   getStats(@CurrentUser() user: any) {
     return this.service.getStats(user);
+  }
+
+  @Get('available-nurses')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Infirmier(e)s disponibles pour assignation (même institution)' })
+  getAvailableNurses(@CurrentUser() user: any) {
+    return this.service.getAvailableNursesForDoctor(user.id);
   }
 
   @Get(':id')

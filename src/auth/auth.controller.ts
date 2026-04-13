@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Headers, HttpCode, HttpStatus, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { InvitationsService } from '../institutions/invitations.service';
 import { EmailService } from '../email/email.service';
@@ -39,6 +40,7 @@ export class AuthController {
    * Register a new user. Public route.
    */
   @Post('register')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Inscription d\'un nouvel utilisateur' })
   @ApiResponse({ status: 201, description: 'Utilisateur créé avec succès' })
@@ -52,6 +54,7 @@ export class AuthController {
    * Authenticate user and return JWT tokens. Public route.
    */
   @Post('login')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Connexion utilisateur' })
   @ApiResponse({ status: 200, description: 'Connexion réussie' })
@@ -65,6 +68,7 @@ export class AuthController {
    * Send a password reset email. Public route.
    */
   @Post('forgot-password')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Demande de réinitialisation du mot de passe' })
   @ApiResponse({ status: 200, description: 'Email envoyé si le compte existe' })
@@ -77,6 +81,7 @@ export class AuthController {
    * Reset password using a token. Public route.
    */
   @Post('reset-password')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Réinitialisation du mot de passe' })
   @ApiResponse({ status: 200, description: 'Mot de passe réinitialisé' })
@@ -89,6 +94,7 @@ export class AuthController {
    * Verify user email address. Public route.
    */
   @Post('verify-email')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Vérification de l\'email' })
   @ApiResponse({ status: 200, description: 'Email vérifié avec succès' })
@@ -128,6 +134,7 @@ export class AuthController {
    * Resend email verification link.
    */
   @Post('resend-verification')
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)

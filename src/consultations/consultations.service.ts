@@ -8,10 +8,14 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { ConsultationFilterDto } from './dto/consultation-filter.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ConsultationsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /**
    * List consultations with role-based filtering and pagination.
@@ -128,6 +132,11 @@ export class ConsultationsService {
             user: {
               select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatarUrl: true },
             },
+          },
+        },
+        initiatedByNurse: {
+          include: {
+            user: { select: { firstName: true, lastName: true } },
           },
         },
         prescriptions: {
@@ -253,18 +262,18 @@ export class ConsultationsService {
       });
     });
 
-    // Create notification for patient
+    // Create notification for patient (with real-time WebSocket delivery)
     if (consultation?.patient?.user?.id) {
       const docName = `${consultation.doctor?.user?.firstName ?? ''} ${consultation.doctor?.user?.lastName ?? ''}`.trim();
-      await this.prisma.notification.create({
-        data: {
-          userId: consultation.patient.user.id,
+      await this.notificationsService.create(
+        consultation.patient.user.id,
+        {
           type: 'info',
           title: 'Nouvelle consultation',
           message: `Dr. ${docName} a ajouté une consultation à votre dossier`,
           link: '/consultations/' + consultation.id,
         },
-      }).catch(() => {});
+      ).catch(() => {});
     }
 
     return { success: true, data: consultation };
@@ -413,5 +422,227 @@ export class ConsultationsService {
       data: consultation,
       message: 'PDF generation a implementer — donnees de la consultation retournees en JSON',
     };
+  }
+
+  // =========================================================================
+  // NURSE — Initiate consultation with vital signs
+  // =========================================================================
+
+  private async getNurseId(userId: string): Promise<string> {
+    const nurse = await this.prisma.nurse.findUnique({ where: { userId } });
+    if (!nurse) throw new NotFoundException('Profil infirmier non trouvé');
+    return nurse.id;
+  }
+
+  /**
+   * Nurse initiates a consultation by recording vital signs.
+   * The consultation is created WITHOUT a doctor — it will be assigned via transfer.
+   */
+  async nurseInitiate(userId: string, dto: {
+    patientId: string;
+    motif: string;
+    temperature?: number;
+    heartRate?: number;
+    bloodPressure?: string;
+    weight?: number;
+    height?: number;
+    oxygenSaturation?: number;
+    respiratoryRate?: number;
+    vitalNotes?: string;
+  }) {
+    const nurseId = await this.getNurseId(userId);
+
+    // Resolve patient ID (supports CaryPass ID)
+    const resolvedPatientId = await this.resolvePatientId(dto.patientId);
+
+    // Build vital signs JSON
+    const vitalSigns: any = {};
+    if (dto.temperature !== undefined) vitalSigns.temperature = dto.temperature;
+    if (dto.heartRate !== undefined) vitalSigns.heartRate = dto.heartRate;
+    if (dto.bloodPressure) vitalSigns.bloodPressure = dto.bloodPressure;
+    if (dto.weight !== undefined) vitalSigns.weight = dto.weight;
+    if (dto.height !== undefined) vitalSigns.height = dto.height;
+    if (dto.oxygenSaturation !== undefined) vitalSigns.oxygenSaturation = dto.oxygenSaturation;
+    if (dto.respiratoryRate !== undefined) vitalSigns.respiratoryRate = dto.respiratoryRate;
+    if (dto.vitalNotes) vitalSigns.notes = dto.vitalNotes;
+
+    const consultation = await this.prisma.consultation.create({
+      data: {
+        patientId: resolvedPatientId,
+        date: new Date(),
+        type: 'consultation',
+        motif: dto.motif,
+        vitalSigns: Object.keys(vitalSigns).length > 0 ? vitalSigns : undefined,
+        status: 'en_cours',
+        initiatedByNurseId: nurseId,
+      },
+      include: {
+        patient: {
+          include: { user: { select: { id: true, firstName: true, lastName: true } } },
+        },
+        initiatedByNurse: {
+          include: { user: { select: { firstName: true, lastName: true } } },
+        },
+      },
+    });
+
+    // Notify the patient
+    if (consultation.patient?.user?.id) {
+      const nurseName = consultation.initiatedByNurse?.user
+        ? `${consultation.initiatedByNurse.user.firstName} ${consultation.initiatedByNurse.user.lastName}`
+        : 'Une infirmière';
+      await this.notificationsService.create(
+        consultation.patient.user.id,
+        {
+          type: 'info',
+          title: 'Paramètres vitaux enregistrés',
+          message: `${nurseName} a enregistré vos paramètres vitaux`,
+          link: '/consultations/' + consultation.id,
+        },
+      ).catch(() => {});
+    }
+
+    return { success: true, data: consultation };
+  }
+
+  // =========================================================================
+  // NURSE — Transfer consultation to a doctor
+  // =========================================================================
+
+  async nurseTransfer(userId: string, consultationId: string, dto: {
+    doctorId?: string;
+    externalDoctorName?: string;
+    externalDoctorSpecialty?: string;
+    externalDoctorPhone?: string;
+  }) {
+    const nurseId = await this.getNurseId(userId);
+
+    const consultation = await this.prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: {
+        patient: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+      },
+    });
+    if (!consultation) throw new NotFoundException('Consultation non trouvée');
+
+    // Must have been initiated by a nurse and not yet transferred
+    if (consultation.transferredAt) {
+      throw new BadRequestException('Cette consultation a déjà été transférée');
+    }
+
+    const updateData: any = {
+      transferredByNurseId: nurseId,
+      transferredAt: new Date(),
+    };
+
+    if (dto.doctorId) {
+      // Internal doctor — verify exists
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { id: dto.doctorId },
+        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      });
+      if (!doctor) throw new NotFoundException('Docteur non trouvé');
+
+      updateData.doctorId = dto.doctorId;
+
+      // Notify the doctor
+      const patientName = `${consultation.patient?.user?.firstName ?? ''} ${consultation.patient?.user?.lastName ?? ''}`.trim();
+      await this.notificationsService.create(
+        doctor.user!.id,
+        {
+          type: 'info',
+          title: 'Patient transféré',
+          message: `L'infirmier(e) vous a transféré le dossier de ${patientName}. Paramètres vitaux déjà enregistrés.`,
+          link: '/consultations/' + consultation.id,
+        },
+      ).catch(() => {});
+    } else if (dto.externalDoctorName) {
+      // External doctor
+      updateData.externalDoctorName = dto.externalDoctorName;
+      updateData.externalDoctorSpecialty = dto.externalDoctorSpecialty;
+      updateData.externalDoctorPhone = dto.externalDoctorPhone;
+    } else {
+      throw new BadRequestException('Veuillez spécifier un docteur CaryPass ou un docteur externe');
+    }
+
+    const updated = await this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: updateData,
+      include: {
+        patient: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+        doctor: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+        initiatedByNurse: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+
+    return { success: true, data: updated };
+  }
+
+  // =========================================================================
+  // Available doctors for transfer (in the nurse's institution)
+  // =========================================================================
+
+  async getAvailableDoctors(userId: string) {
+    const nurse = await this.prisma.nurse.findUnique({ where: { userId } });
+    if (!nurse) throw new NotFoundException('Profil infirmier non trouvé');
+
+    // Get ALL doctors in the system — prioritize same institution, then others
+    const doctors = await this.prisma.doctor.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+            isActive: true,
+          },
+        },
+        institution: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Filter out inactive users
+    const active = doctors.filter((d) => d.user.isActive !== false);
+
+    // Sort: same institution first, then others
+    const sorted = active.sort((a, b) => {
+      const aInst = a.institutionId === nurse.institutionId ? 0 : 1;
+      const bInst = b.institutionId === nurse.institutionId ? 0 : 1;
+      return aInst - bInst;
+    });
+
+    return sorted.map((d) => ({
+      id: d.id,
+      firstName: d.user.firstName,
+      lastName: d.user.lastName,
+      specialty: d.specialty,
+      avatarUrl: d.user.avatarUrl,
+      institution: d.institution?.name || null,
+      sameInstitution: d.institutionId === nurse.institutionId,
+    }));
+  }
+
+  // =========================================================================
+  // Nurse — list consultations initiated by this nurse
+  // =========================================================================
+
+  async findNurseConsultations(userId: string) {
+    const nurseId = await this.getNurseId(userId);
+
+    return this.prisma.consultation.findMany({
+      where: { initiatedByNurseId: nurseId },
+      include: {
+        patient: {
+          include: { user: { select: { firstName: true, lastName: true } } },
+        },
+        doctor: {
+          include: { user: { select: { firstName: true, lastName: true } } },
+        },
+      },
+      orderBy: { date: 'desc' },
+      take: 50,
+    });
   }
 }

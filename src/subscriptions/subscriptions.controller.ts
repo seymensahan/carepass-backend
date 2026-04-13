@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('subscriptions')
 @ApiBearerAuth()
@@ -54,8 +55,9 @@ export class SubscriptionsController {
    * Liste de tous les plans actifs.
    */
   @Get('plans')
+  @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Lister les plans d\'abonnement disponibles' })
+  @ApiOperation({ summary: 'Lister les plans d\'abonnement disponibles (public)' })
   @ApiResponse({ status: 200, description: 'Liste des plans' })
   findAllPlans() {
     return this.subscriptionsService.findAllPlans();
@@ -163,5 +165,32 @@ export class SubscriptionsController {
   @ApiResponse({ status: 404, description: 'Abonnement non trouve' })
   cancel(@Param('id') id: string) {
     return this.subscriptionsService.cancel(id);
+  }
+
+  // ===================== EXPIRY =====================
+
+  /**
+   * POST /subscriptions/expire-check
+   * Run subscription expiry check (super_admin or cron).
+   */
+  @Post('expire-check')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vérifier et expirer les abonnements (super_admin)' })
+  @ApiResponse({ status: 200, description: 'Nombre d\'abonnements expirés' })
+  expireCheck() {
+    return this.subscriptionsService.expireSubscriptions();
+  }
+
+  /**
+   * GET /subscriptions/my-status
+   * Get current user's subscription status.
+   */
+  @Get('my-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vérifier le statut de son abonnement' })
+  @ApiResponse({ status: 200, description: 'Statut de l\'abonnement' })
+  myStatus(@CurrentUser('id') userId: string) {
+    return this.subscriptionsService.checkUserSubscriptionStatus(userId);
   }
 }

@@ -51,20 +51,28 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
     // Create user with availableRoles initialized
+    // Doctors and nurses also get the patient role by default so they can
+    // manage their own medical file (emergency QR, personal health records...)
+    const isHealthcareRole = dto.role === Role.doctor || dto.role === Role.nurse;
+    const initialRoles: Role[] = isHealthcareRole
+      ? [dto.role, Role.patient]
+      : [dto.role];
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
         role: dto.role,
-        availableRoles: [dto.role],
+        availableRoles: initialRoles,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
       },
     });
 
-    // If role is patient, create Patient record with CaryPass ID
-    if (dto.role === Role.patient) {
+    // Create Patient record with CaryPass ID for patients, doctors, and nurses
+    // (so healthcare professionals can manage their own medical file too)
+    if (dto.role === Role.patient || isHealthcareRole) {
       const carypassId = await this.generateCarypassId();
       await this.prisma.patient.create({
         data: {

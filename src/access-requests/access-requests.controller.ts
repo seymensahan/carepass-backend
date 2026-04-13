@@ -42,8 +42,8 @@ export class AccessRequestsController {
   }
 
   @Post()
-  @Roles('doctor')
-  @ApiOperation({ summary: 'Créer une demande d\'accès (médecin)' })
+  @Roles('doctor', 'nurse')
+  @ApiOperation({ summary: 'Créer une demande d\'accès (médecin ou infirmier)' })
   async create(
     @Body() dto: CreateAccessRequestDto,
     @CurrentUser() user: any,

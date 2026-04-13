@@ -2,18 +2,43 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
+  Inject,
+  Optional,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 
+const PLANS_CACHE_KEY = 'subscriptions:plans:active';
+const PLANS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 // TODO: Integrer Pawapay pour le traitement des paiements
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly logger = new Logger(SubscriptionsService.name);
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    @Optional() @Inject(CACHE_MANAGER) private readonly cache?: Cache,
+  ) {}
+
+  /**
+   * Invalidate the cached active-plans list. Called after any mutation
+   * that could affect the public plan catalog.
+   */
+  private async invalidatePlansCache(): Promise<void> {
+    try {
+      await this.cache?.del(PLANS_CACHE_KEY);
+    } catch (err: any) {
+      this.logger.warn(`Plans cache invalidation failed: ${err?.message || err}`);
+    }
+  }
 
   // ===================== SUBSCRIPTIONS =====================
 
@@ -182,13 +207,33 @@ export class SubscriptionsService {
   // ===================== PLANS =====================
 
   /**
-   * Liste de tous les plans actifs.
+   * Liste de tous les plans actifs. Mise en cache 1 heure (Redis si
+   * disponible, sinon cache memoire). Invalidee par create/update plan.
    */
   async findAllPlans() {
+    if (this.cache) {
+      try {
+        const cached = await this.cache.get<any[]>(PLANS_CACHE_KEY);
+        if (cached) {
+          return { success: true, data: cached, cached: true };
+        }
+      } catch (err: any) {
+        this.logger.warn(`Plans cache read failed: ${err?.message || err}`);
+      }
+    }
+
     const data = await this.prisma.plan.findMany({
       where: { isActive: true },
       orderBy: { priceMonthly: 'asc' },
     });
+
+    if (this.cache) {
+      try {
+        await this.cache.set(PLANS_CACHE_KEY, data, PLANS_CACHE_TTL_MS);
+      } catch (err: any) {
+        this.logger.warn(`Plans cache write failed: ${err?.message || err}`);
+      }
+    }
 
     return { success: true, data };
   }
@@ -236,6 +281,8 @@ export class SubscriptionsService {
       },
     });
 
+    await this.invalidatePlansCache();
+
     return { success: true, data: plan };
   }
 
@@ -272,6 +319,72 @@ export class SubscriptionsService {
       },
     });
 
+    await this.invalidatePlansCache();
+
     return { success: true, data: updated };
+  }
+
+  // ===================== SUBSCRIPTION EXPIRY =====================
+
+  /**
+   * Check and expire subscriptions past their endDate.
+   * Called daily via a controller endpoint or interval.
+   */
+  async expireSubscriptions() {
+    const now = new Date();
+
+    const expired = await this.prisma.subscription.updateMany({
+      where: {
+        status: 'active',
+        endDate: { lt: now },
+      },
+      data: { status: 'expired' },
+    });
+
+    if (expired.count > 0) {
+      this.logger.log(`${expired.count} abonnement(s) expirés automatiquement`);
+    }
+
+    return { expired: expired.count };
+  }
+
+  /**
+   * Check subscription status for a specific user.
+   * Returns whether subscription is active, expired, or never existed.
+   */
+  async checkUserSubscriptionStatus(userId: string) {
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: { plan: true },
+    });
+
+    if (!subscription) {
+      return { hasSubscription: false, isExpired: false, subscription: null };
+    }
+
+    const isExpired = subscription.status === 'expired' ||
+      (subscription.status === 'active' && new Date(subscription.endDate) < new Date());
+
+    // Auto-expire if still marked active but past endDate
+    if (subscription.status === 'active' && new Date(subscription.endDate) < new Date()) {
+      await this.prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { status: 'expired' },
+      });
+    }
+
+    return {
+      hasSubscription: true,
+      isExpired,
+      isActive: subscription.status === 'active' && new Date(subscription.endDate) >= new Date(),
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        startDate: subscription.startDate,
+        endDate: subscription.endDate,
+        plan: subscription.plan,
+      },
+    };
   }
 }

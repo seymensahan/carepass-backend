@@ -1,3 +1,8 @@
+// IMPORTANT: Sentry instrumentation MUST be imported before anything else
+// so that Sentry can patch Node's internals before they are used. It is a
+// no-op when SENTRY_DSN is not set.
+import './instrument';
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

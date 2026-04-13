@@ -8,12 +8,16 @@ import { CreateInstitutionDto } from './dto/create-institution.dto';
 import { UpdateInstitutionDto } from './dto/update-institution.dto';
 import { InstitutionFilterDto } from './dto/institution-filter.dto';
 import { AppwriteService } from '../common/services/appwrite.service';
+import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InstitutionsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly appwriteService: AppwriteService,
+    private readonly emailService: EmailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -236,22 +240,42 @@ export class InstitutionsService {
       this.prisma.doctor.count({ where: { institutionId: id } }),
     ]);
 
-    // Enrich with patient count and consultations this month
-    const enriched = await Promise.all(
-      data.map(async (d) => {
-        const [uniquePatients, consultationsThisMonth] = await Promise.all([
-          this.prisma.consultation.findMany({
-            where: { doctorId: d.id },
-            select: { patientId: true },
-            distinct: ['patientId'],
-          }).then(r => r.length),
-          this.prisma.consultation.count({
-            where: { doctorId: d.id, date: { gte: firstDayOfMonth } },
-          }),
-        ]);
-        return { ...d, patientsCount: uniquePatients, consultationsThisMonth };
-      }),
-    );
+    // Optimized: fetch per-doctor stats in 2 aggregate queries instead of 2 per doctor (N+1)
+    const doctorIds = data.map((d) => d.id);
+    let patientsCountMap: Record<string, number> = {};
+    let consultationsThisMonthMap: Record<string, number> = {};
+
+    if (doctorIds.length > 0) {
+      const [uniquePatientRows, consultationsThisMonthRows] = await Promise.all([
+        // Distinct (doctorId, patientId) pairs — one query, we count in memory
+        this.prisma.consultation.findMany({
+          where: { doctorId: { in: doctorIds } },
+          select: { doctorId: true, patientId: true },
+          distinct: ['doctorId', 'patientId'],
+        }),
+        // Grouped monthly consultation count per doctor
+        this.prisma.consultation.groupBy({
+          by: ['doctorId'],
+          where: { doctorId: { in: doctorIds }, date: { gte: firstDayOfMonth } },
+          _count: { _all: true },
+        }),
+      ]);
+
+      for (const row of uniquePatientRows) {
+        if (!row.doctorId) continue;
+        patientsCountMap[row.doctorId] = (patientsCountMap[row.doctorId] || 0) + 1;
+      }
+      for (const row of consultationsThisMonthRows) {
+        if (!row.doctorId) continue;
+        consultationsThisMonthMap[row.doctorId] = row._count._all;
+      }
+    }
+
+    const enriched = data.map((d) => ({
+      ...d,
+      patientsCount: patientsCountMap[d.id] || 0,
+      consultationsThisMonth: consultationsThisMonthMap[d.id] || 0,
+    }));
 
     return {
       success: true,
@@ -385,6 +409,7 @@ export class InstitutionsService {
     // Count unique patients per doctor from consultations
     const patientsByDoctor: Record<string, Set<string>> = {};
     for (const c of allConsultations) {
+      if (!c.doctorId) continue;
       if (!patientsByDoctor[c.doctorId]) patientsByDoctor[c.doctorId] = new Set();
       patientsByDoctor[c.doctorId].add(c.patientId);
     }
@@ -473,6 +498,77 @@ export class InstitutionsService {
   }
 
   /**
+   * Suspendre une institution. Reserve au super_admin.
+   * Envoie un email à l'administrateur de l'institution.
+   */
+  async suspend(id: string, reason?: string) {
+    const institution = await this.prisma.institution.findUnique({
+      where: { id },
+      include: {
+        admin: { select: { email: true, firstName: true } },
+      },
+    });
+
+    if (!institution) {
+      throw new NotFoundException('Institution non trouvée');
+    }
+
+    const updated = await this.prisma.institution.update({
+      where: { id },
+      data: {
+        isSuspended: true,
+        suspendedAt: new Date(),
+        suspensionReason: reason || null,
+      },
+    });
+
+    // Send suspension email to admin
+    if (institution.admin?.email) {
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #dc3545;">CARYPASS — Institution Suspendue</h2>
+          <p>Bonjour ${institution.admin.firstName || ''},</p>
+          <p>Votre institution <strong>${institution.name}</strong> a été suspendue sur la plateforme CARYPASS.</p>
+          ${reason ? `<p style="background: #fff3cd; padding: 12px; border-radius: 8px; border-left: 4px solid #ffc107;"><strong>Raison :</strong> ${reason}</p>` : ''}
+          <p>Pendant la suspension, les membres de votre institution ne pourront plus effectuer d'actions sur la plateforme.</p>
+          <p>Pour plus d'informations ou pour contester cette décision, contactez le support à <a href="mailto:support@carypass.cm">support@carypass.cm</a>.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+          <p style="color: #888; font-size: 12px;">CARYPASS — Plateforme de santé numérique</p>
+        </div>
+      `;
+      this.emailService.sendCustomEmail(
+        institution.admin.email,
+        `Institution suspendue — ${institution.name} — CARYPASS`,
+        html,
+      ).catch(() => {});
+    }
+
+    return { success: true, data: updated, message: 'Institution suspendue avec succès' };
+  }
+
+  /**
+   * Lever la suspension d'une institution. Reserve au super_admin.
+   */
+  async unsuspend(id: string) {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+
+    if (!institution) {
+      throw new NotFoundException('Institution non trouvée');
+    }
+
+    const updated = await this.prisma.institution.update({
+      where: { id },
+      data: {
+        isSuspended: false,
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+    });
+
+    return { success: true, data: updated, message: 'Suspension levée avec succès' };
+  }
+
+  /**
    * Supprimer une institution. Reserve au super_admin.
    * Verifie qu'aucun medecin n'est lie.
    */
@@ -543,17 +639,27 @@ export class InstitutionsService {
   }
 
   async assignNurseToHospitalisation(institutionId: string, hospitalisationId: string, nurseId: string) {
-    // Verify hospitalisation belongs to institution
+    // Verify hospitalisation belongs to institution + fetch patient/doctor info for notification
     const hosp = await this.prisma.hospitalisation.findFirst({
       where: { id: hospitalisationId, institutionId },
+      include: {
+        patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+        doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
     });
     if (!hosp) throw new NotFoundException('Hospitalisation non trouvée dans cette institution');
 
     // Verify nurse belongs to institution
     const nurse = await this.prisma.nurse.findFirst({
       where: { id: nurseId, institutionId },
+      include: { user: { select: { id: true } } },
     });
     if (!nurse) throw new NotFoundException('Infirmier non trouvé dans cette institution');
+
+    // Check if assignment already exists (to avoid duplicate notifications)
+    const existing = await this.prisma.hospitalisationNurseAssignment.findUnique({
+      where: { hospitalisationId_nurseId: { hospitalisationId, nurseId } },
+    });
 
     const assignment = await this.prisma.hospitalisationNurseAssignment.upsert({
       where: {
@@ -565,6 +671,23 @@ export class InstitutionsService {
         nurse: { include: { user: { select: { firstName: true, lastName: true } } } },
       },
     });
+
+    // Send notification to nurse only if it's a new assignment
+    if (!existing && nurse.user?.id) {
+      const patientName = `${hosp.patient?.user?.firstName ?? ''} ${hosp.patient?.user?.lastName ?? ''}`.trim();
+      const doctorName = `${hosp.doctor?.user?.firstName ?? ''} ${hosp.doctor?.user?.lastName ?? ''}`.trim();
+      const room = hosp.room ? ` (chambre ${hosp.room}${hosp.bed ? ` - lit ${hosp.bed}` : ''})` : '';
+
+      await this.notificationsService.create(
+        nurse.user.id,
+        {
+          type: 'info',
+          title: 'Nouvelle affectation',
+          message: `Vous avez été assigné(e) à l'hospitalisation de ${patientName}${room}. Médecin: Dr. ${doctorName}.`,
+          link: `/nurse/hospitalisations/${hospitalisationId}`,
+        },
+      ).catch(() => {});
+    }
 
     return {
       success: true,
@@ -579,12 +702,33 @@ export class InstitutionsService {
   async unassignNurseFromHospitalisation(institutionId: string, hospitalisationId: string, nurseId: string) {
     const hosp = await this.prisma.hospitalisation.findFirst({
       where: { id: hospitalisationId, institutionId },
+      include: {
+        patient: { include: { user: { select: { firstName: true, lastName: true } } } },
+      },
     });
     if (!hosp) throw new NotFoundException('Hospitalisation non trouvée dans cette institution');
+
+    const nurse = await this.prisma.nurse.findFirst({
+      where: { id: nurseId },
+      include: { user: { select: { id: true } } },
+    });
 
     await this.prisma.hospitalisationNurseAssignment.deleteMany({
       where: { hospitalisationId, nurseId },
     });
+
+    // Notify the nurse that they've been unassigned
+    if (nurse?.user?.id) {
+      const patientName = `${hosp.patient?.user?.firstName ?? ''} ${hosp.patient?.user?.lastName ?? ''}`.trim();
+      await this.notificationsService.create(
+        nurse.user.id,
+        {
+          type: 'warning',
+          title: 'Affectation retirée',
+          message: `Vous n'êtes plus assigné(e) à l'hospitalisation de ${patientName}.`,
+        },
+      ).catch(() => {});
+    }
 
     return { success: true, message: 'Infirmier retiré de l\'hospitalisation' };
   }

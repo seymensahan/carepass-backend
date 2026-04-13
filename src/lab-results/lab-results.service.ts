@@ -9,6 +9,7 @@ import { UpdateLabResultDto } from './dto/update-lab-result.dto';
 import { LabResultFilterDto } from './dto/lab-result-filter.dto';
 import { EmailService } from '../email/email.service';
 import { AppwriteService } from '../common/services/appwrite.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class LabResultsService {
@@ -16,6 +17,7 @@ export class LabResultsService {
     private readonly prisma: PrismaClient,
     private readonly emailService: EmailService,
     private readonly appwriteService: AppwriteService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findAll(filters: LabResultFilterDto, user: any) {
@@ -264,16 +266,16 @@ export class LabResultsService {
       },
     });
 
-    // Create notification for the patient
+    // Create notification for the patient (with real-time WebSocket delivery)
     if (existing.patient) {
-      await this.prisma.notification.create({
-        data: {
-          userId: existing.patient.userId,
-          title: 'Resultat valide',
-          message: `Votre resultat "${existing.title}" a ete valide par un medecin.`,
+      await this.notificationsService.create(
+        existing.patient.userId,
+        {
+          title: 'Resultat validé',
+          message: `Votre résultat "${existing.title}" a été validé par un médecin.`,
           type: 'info',
         },
-      });
+      ).catch(() => {});
     }
 
     return labResult;
