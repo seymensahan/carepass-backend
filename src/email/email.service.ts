@@ -65,6 +65,7 @@ export class EmailService {
   async sendPasswordResetEmail(to: string, firstName: string, resetToken: string): Promise<void> {
     if (await this.tryEnqueue('password-reset', to, { firstName, resetToken })) return;
     const resetUrl = `${this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000')}/reset-password?token=${resetToken}`;
+    const mobileDeepLink = `carypass://reset-password?token=${resetToken}`;
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -76,8 +77,18 @@ export class EmailService {
             Réinitialiser mon mot de passe
           </a>
         </div>
+        <p style="text-align: center; font-size: 13px; color: #666;">
+          Vous utilisez l'application mobile ?
+          <br />
+          <a href="${mobileDeepLink}" style="color: #0066CC;">Ouvrir dans CARYPASS</a>
+        </p>
         <p>Ce lien expirera dans <strong>1 heure</strong>.</p>
         <p>Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
+        <p style="font-size: 11px; color: #999; margin-top: 16px;">
+          Vous pouvez aussi entrer ce code manuellement dans l'application :
+          <br />
+          <code style="background: #f4f4f4; padding: 4px 8px; border-radius: 4px; font-size: 12px; word-break: break-all;">${resetToken}</code>
+        </p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
         <p style="color: #888; font-size: 12px;">CARYPASS — Plateforme de santé numérique</p>
       </div>
