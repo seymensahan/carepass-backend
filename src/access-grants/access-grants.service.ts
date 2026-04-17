@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
+import { CreateAccessGrantDto, durationToExpiresAt } from './dto/create-access-grant.dto';
 
 @Injectable()
 export class AccessGrantsService {
@@ -82,12 +82,24 @@ export class AccessGrantsService {
       );
     }
 
+    // Resolve expiresAt: explicit expiresAt wins over duration.
+    // If neither is provided, fall back to a sensible default (1 week) instead of permanent.
+    let resolvedExpiresAt: Date | null;
+    if (dto.expiresAt) {
+      resolvedExpiresAt = new Date(dto.expiresAt);
+    } else if (dto.duration !== undefined) {
+      resolvedExpiresAt = durationToExpiresAt(dto.duration);
+    } else {
+      // No duration provided — default to 1 week to avoid accidental permanent grants
+      resolvedExpiresAt = durationToExpiresAt('1_semaine');
+    }
+
     return this.prisma.accessGrant.create({
       data: {
         patientId,
         doctorId: dto.doctorId,
         scope: dto.scope ?? 'full',
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        expiresAt: resolvedExpiresAt,
       },
     });
   }

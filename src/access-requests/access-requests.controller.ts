@@ -57,8 +57,9 @@ export class AccessRequestsController {
   async approve(
     @Param('id') id: string,
     @CurrentUser() user: any,
+    @Body() body: { duration?: string; permissions?: Record<string, boolean> } = {},
   ) {
-    return this.accessRequestsService.approve(id, user.id);
+    return this.accessRequestsService.approve(id, user.id, body.duration, body.permissions);
   }
 
   @Patch(':id/deny')

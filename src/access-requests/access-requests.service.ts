@@ -191,10 +191,15 @@ export class AccessRequestsService {
    * Approve an access request (patient action).
    * - Verifies the request belongs to the patient
    * - Updates status to approved
-   * - Auto-creates an AccessGrant
+   * - Auto-creates an AccessGrant with the duration chosen by the patient
    * - Creates a notification for the doctor
    */
-  async approve(id: string, patientUserId: string) {
+  async approve(
+    id: string,
+    patientUserId: string,
+    duration?: string,
+    _permissions?: Record<string, boolean>,
+  ) {
     const request = await this.prisma.accessRequest.findUnique({
       where: { id },
       include: {
@@ -219,6 +224,22 @@ export class AccessRequestsService {
 
     const patientName = `${request.patient.user.firstName} ${request.patient.user.lastName}`;
 
+    // Resolve expiresAt from patient's chosen duration.
+    // Default to 1 week if no duration provided (safer than permanent).
+    const durationToExpires = (d?: string): Date | null => {
+      if (!d || d === 'permanent') return null;
+      const day = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      switch (d) {
+        case '24h': return new Date(now + day);
+        case '1_semaine': return new Date(now + 7 * day);
+        case '1_mois': return new Date(now + 30 * day);
+        case '3_mois': return new Date(now + 90 * day);
+        default: return new Date(now + 7 * day);
+      }
+    };
+    const grantExpiresAt = durationToExpires(duration);
+
     // Perform all writes in a transaction
     const [updatedRequest] = await this.prisma.$transaction([
       // Update the request status
@@ -240,6 +261,7 @@ export class AccessRequestsService {
           data: {
             patientId: request.patientId,
             doctorId: request.doctorId,
+            expiresAt: grantExpiresAt,
           },
         }),
       ] : []),

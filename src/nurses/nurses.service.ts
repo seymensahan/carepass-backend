@@ -164,11 +164,25 @@ export class NursesService {
       throw new ForbiddenException('Accès non autorisé');
     }
 
+    // Serialize customVitals into notes so they survive without requiring a
+    // DB migration. Parsed back by the nurse history view via the "[Paramètres
+    // personnalisés]" prefix.
+    let enrichedNotes = dto.notes || '';
+    if (dto.customVitals && dto.customVitals.length > 0) {
+      const lines = dto.customVitals
+        .filter((cv) => cv.name && cv.value)
+        .map((cv) => `• ${cv.name}: ${cv.value}${cv.unit ? ' ' + cv.unit : ''}`);
+      if (lines.length > 0) {
+        const header = '[Paramètres personnalisés]';
+        enrichedNotes = `${header}\n${lines.join('\n')}${enrichedNotes ? '\n\n' + enrichedNotes : ''}`;
+      }
+    }
+
     const execution = await this.prisma.carePlanExecution.create({
       data: {
         carePlanItemId,
         nurseId: nurse.id,
-        notes: dto.notes,
+        notes: enrichedNotes || undefined,
         temperature: dto.temperature,
         systolic: dto.systolic,
         diastolic: dto.diastolic,
