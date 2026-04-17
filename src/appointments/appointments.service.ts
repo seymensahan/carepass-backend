@@ -70,7 +70,15 @@ export class AppointmentsService {
       if (!patient) {
         throw new NotFoundException('Profil patient non trouvé');
       }
-      where.patientId = patient.id;
+      // Include dependents
+      const guardianships = await this.prisma.legalGuardian.findMany({
+        where: { guardianPatientId: patient.id },
+        select: { dependentId: true, canManage: true, readOnlyAfterTransfer: true },
+      });
+      const dependentIds = guardianships
+        .filter((g) => g.canManage || g.readOnlyAfterTransfer)
+        .map((g) => g.dependentId);
+      where.patientId = { in: [patient.id, ...dependentIds] };
     }
     // Admin and super_admin see all — no additional filter
 

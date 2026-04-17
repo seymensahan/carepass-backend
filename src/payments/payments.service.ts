@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import * as https from 'https';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
+import { ReferralService } from '../referral/referral.service';
 
 @Injectable()
 export class PaymentsService {
@@ -19,6 +20,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
+    private readonly referralService: ReferralService,
   ) {
     this.pawapayBaseUrl = this.configService.get<string>(
       'PAWAPAY_API_URL',
@@ -300,6 +302,10 @@ export class PaymentsService {
         data: { status: 'completed', paidAt: new Date() },
       });
       await this.activateSubscription(payment.userId, payment.id);
+
+      // Process referral for first-time patient payments
+      await this.processReferralIfApplicable(payment.userId, payment.id, Number(payment.amount));
+
       this.logger.log(`Payment completed: ${depositId}`);
     } else if (status === 'FAILED') {
       await this.prisma.payment.update({
@@ -353,6 +359,7 @@ export class PaymentsService {
                 dateOfBirth: regData.dateOfBirth ? new Date(regData.dateOfBirth) : new Date('2000-01-01'),
                 gender: regData.gender || undefined,
                 bloodGroup: regData.bloodGroup || undefined,
+                referredByCode: regData.referralCode || undefined,
               },
             });
           }
@@ -396,6 +403,28 @@ export class PaymentsService {
         await this.prisma.pendingRegistration.update({
           where: { id: pendingReg.id }, data: { status: 'completed' },
         });
+
+        // Process referral if patient registered with a referral code
+        const regRole = regData.role || (regData.institutionName ? 'institution_admin' : 'patient');
+        if (regRole === 'patient' && regData.referralCode) {
+          try {
+            // Check if this is the patient's first payment (it is, since they just registered)
+            const payment = await this.prisma.payment.findFirst({
+              where: { userId: result.id, status: 'completed' },
+            });
+            if (payment) {
+              await this.referralService.processReferral(
+                result.id,
+                regData.referralCode,
+                payment.id,
+                Number(pendingReg.amount),
+              );
+            }
+          } catch (refErr) {
+            this.logger.error(`Referral processing failed: ${refErr}`);
+            // Don't fail the registration if referral processing fails
+          }
+        }
 
         this.logger.log(`Registration completed via payment: ${result.email} (${pendingReg.depositId})`);
       } catch (error) {
@@ -515,6 +544,7 @@ export class PaymentsService {
       if (deposit?.status === 'COMPLETED') {
         await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'completed', paidAt: new Date() } });
         await this.activateSubscription(userId, payment.id);
+        await this.processReferralIfApplicable(userId, payment.id, Number(payment.amount));
         return { success: true, data: { status: 'completed', paidAt: new Date() } };
       }
       if (deposit?.status === 'FAILED') {
@@ -524,6 +554,47 @@ export class PaymentsService {
       }
     }
     return { success: true, data: { status: payment.status } };
+  }
+
+  // ---------------------------------------------------------------------------
+  // PROCESS REFERRAL IF APPLICABLE
+  // Called after payment completion to check if referral split should apply
+  // ---------------------------------------------------------------------------
+  private async processReferralIfApplicable(
+    userId: string,
+    paymentId: string,
+    paymentAmount: number,
+  ) {
+    try {
+      // Check if user is a patient with a referral code
+      const patient = await this.prisma.patient.findUnique({
+        where: { userId },
+      });
+      if (!patient || !patient.referredByCode) return;
+
+      // Check if this is the patient's FIRST completed payment
+      const completedPayments = await this.prisma.payment.count({
+        where: { userId, status: 'completed' },
+      });
+
+      // Only process referral on the first payment (count should be 1 since we just completed it)
+      if (completedPayments > 1) {
+        this.logger.log(
+          `Skipping referral for user ${userId} — not first payment (${completedPayments} completed)`,
+        );
+        return;
+      }
+
+      await this.referralService.processReferral(
+        userId,
+        patient.referredByCode,
+        paymentId,
+        paymentAmount,
+      );
+    } catch (err) {
+      this.logger.error(`Referral processing failed for payment ${paymentId}: ${err}`);
+      // Don't fail the payment if referral processing fails
+    }
   }
 
   // ---------------------------------------------------------------------------

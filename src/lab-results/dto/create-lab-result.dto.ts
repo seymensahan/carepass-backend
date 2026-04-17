@@ -74,6 +74,11 @@ export class CreateLabResultDto {
   @IsString()
   institutionId?: string;
 
+  @ApiPropertyOptional({ description: 'ID de la consultation associee (pour lier le resultat a une consultation)' })
+  @IsOptional()
+  @IsString()
+  consultationId?: string;
+
   @ApiPropertyOptional({ description: 'Notes supplementaires' })
   @IsOptional()
   @IsString()

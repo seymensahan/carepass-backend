@@ -49,7 +49,15 @@ export class LabResultsService {
         where: { userId: user.id },
       });
       if (patientProfile) {
-        where.patientId = patientProfile.id;
+        // Include dependents
+        const guardianships = await this.prisma.legalGuardian.findMany({
+          where: { guardianPatientId: patientProfile.id },
+          select: { dependentId: true, canManage: true, readOnlyAfterTransfer: true },
+        });
+        const dependentIds = guardianships
+          .filter((g) => g.canManage || g.readOnlyAfterTransfer)
+          .map((g) => g.dependentId);
+        where.patientId = { in: [patientProfile.id, ...dependentIds] };
       }
     } else if (user.role !== 'super_admin') {
       where.patientId = '__none__';
@@ -104,6 +112,15 @@ export class LabResultsService {
         patient: { include: { user: true } },
         uploadedBy: true,
         institution: true,
+        consultation: {
+          select: {
+            id: true,
+            date: true,
+            motif: true,
+            diagnosis: true,
+            doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+          },
+        },
       },
     });
 
@@ -119,9 +136,13 @@ export class LabResultsService {
 
     // Upload file to Appwrite if provided, otherwise use fileUrl from DTO
     let resolvedFileUrl = data.fileUrl || '';
+    let fileSize: number | undefined;
+    let mimeType: string | undefined;
     if (file) {
       const { url } = await this.appwriteService.uploadFile(file, 'lab-results');
       resolvedFileUrl = url;
+      fileSize = file.size;
+      mimeType = file.mimetype;
     }
 
     const labResult = await this.prisma.labResult.create({
@@ -131,8 +152,11 @@ export class LabResultsService {
         category: data.category,
         date: new Date(data.date),
         fileUrl: resolvedFileUrl,
+        fileSize,
+        mimeType,
         uploadedById,
         institutionId: data.institutionId,
+        consultationId: (data as any).consultationId || undefined,
         notes: data.notes,
         items: items && items.length > 0
           ? {

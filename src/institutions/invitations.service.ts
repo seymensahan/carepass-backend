@@ -115,6 +115,106 @@ export class InvitationsService {
   }
 
   /**
+   * Create an invitation from a doctor (for nurses) — bypasses institution requirement.
+   */
+  async createDoctorInvitation(
+    doctorId: string,
+    invitedByUserId: string,
+    email: string,
+    message?: string,
+  ) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      include: { user: { select: { firstName: true, lastName: true } } },
+    });
+    if (!doctor) throw new NotFoundException('Médecin non trouvé');
+
+    // Check subscription is active
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { userId: invitedByUserId, status: 'active' },
+    });
+    if (!subscription) {
+      throw new ConflictException(
+        'Vous devez avoir un abonnement actif pour inviter des infirmier(e)s.',
+      );
+    }
+
+    // If the nurse already has an account AND is already linked, reject
+    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    if (existingUser?.role === 'nurse') {
+      const existingNurse = await this.prisma.nurse.findUnique({
+        where: { userId: existingUser.id },
+      });
+      if (existingNurse) {
+        const existingGrant = await this.prisma.accessGrant.findFirst({
+          where: { patientId: existingNurse.id, doctorId, isActive: true },
+        });
+        if (existingGrant) {
+          throw new ConflictException('Cet(te) infirmier(e) est déjà dans votre équipe.');
+        }
+      }
+    }
+
+    const existingInvitation = await this.prisma.invitation.findFirst({
+      where: { email, invitedByDoctorId: doctorId, status: 'pending' },
+    });
+    if (existingInvitation) {
+      throw new ConflictException('Une invitation est déjà en attente pour cet email.');
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invitation = await this.prisma.invitation.create({
+      data: {
+        invitedByDoctorId: doctorId,
+        email,
+        role: 'nurse' as Role,
+        token,
+        message,
+        invitedById: invitedByUserId,
+        expiresAt,
+      },
+    });
+
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const registerUrl = `${frontendUrl}/register/invitation?token=${token}`;
+    const doctorName = `Dr. ${doctor.user?.firstName ?? ''} ${doctor.user?.lastName ?? ''}`.trim();
+
+    await this.sendDoctorInvitationEmail(email, doctorName, registerUrl, message);
+
+    return invitation;
+  }
+
+  /**
+   * List invitations sent by a specific doctor.
+   */
+  async getDoctorInvitations(doctorId: string) {
+    return this.prisma.invitation.findMany({
+      where: { invitedByDoctorId: doctorId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        invitedBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  /**
+   * Cancel a pending doctor invitation.
+   */
+  async cancelDoctorInvitation(id: string, doctorId: string) {
+    const invitation = await this.prisma.invitation.findFirst({
+      where: { id, invitedByDoctorId: doctorId, status: 'pending' },
+    });
+    if (!invitation) throw new NotFoundException('Invitation non trouvée');
+
+    return this.prisma.invitation.update({
+      where: { id },
+      data: { status: 'expired' },
+    });
+  }
+
+  /**
    * List invitations for an institution.
    */
   async getInvitations(institutionId: string) {
@@ -137,6 +237,12 @@ export class InvitationsService {
       where: { token },
       include: {
         institution: { select: { id: true, name: true, type: true } },
+        invitedByDoctor: {
+          select: {
+            id: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
       },
     });
 
@@ -175,7 +281,7 @@ export class InvitationsService {
     const invitedRole = invitation.role as string;
     const institutionId = invitation.institutionId;
 
-    if (invitedRole === 'doctor') {
+    if (invitedRole === 'doctor' && institutionId) {
       const existing = await this.prisma.doctor.findUnique({ where: { userId } });
       if (!existing) {
         const doctor = await this.prisma.doctor.create({
@@ -201,7 +307,18 @@ export class InvitationsService {
       const existing = await this.prisma.nurse.findUnique({ where: { userId } });
       if (!existing) {
         await this.prisma.nurse.create({
-          data: { userId, institutionId },
+          data: {
+            userId,
+            ...(institutionId ? { institutionId } : {}),
+            specialty: 'Soins généraux',
+            licenseNumber: `INF-${Date.now()}`,
+          },
+        });
+      } else if (institutionId && !existing.institutionId) {
+        // If invited by institution and nurse has no institution yet, attach her
+        await this.prisma.nurse.update({
+          where: { id: existing.id },
+          data: { institutionId },
         });
       }
     }
@@ -263,5 +380,33 @@ export class InvitationsService {
     `;
 
     await this.emailService.sendCustomEmail(to, `Invitation à rejoindre ${institutionName} — CARYPASS`, html);
+  }
+
+  private async sendDoctorInvitationEmail(
+    to: string,
+    doctorName: string,
+    registerUrl: string,
+    message?: string,
+  ) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #0066CC;">CARYPASS — Invitation</h2>
+        <p>Bonjour,</p>
+        <p><strong>${doctorName}</strong> vous invite à rejoindre la plateforme CARYPASS en tant qu'<strong>infirmier(e)</strong>.</p>
+        ${message ? `<p style="background: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #007bff;">"${message}"</p>` : ''}
+        <p>Créez votre compte gratuitement en cliquant ci-dessous :</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${registerUrl}" style="background-color: #0066CC; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+            Créer mon compte gratuit
+          </a>
+        </div>
+        <p style="background:#eaf6ff;padding:10px;border-radius:8px;color:#0066CC;font-size:13px;"><strong>Aucun frais d'inscription</strong> — votre compte est entièrement pris en charge.</p>
+        <p style="color: #6c757d; font-size: 13px;">Ce lien est valable <strong>7 jours</strong>.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+        <p style="color: #888; font-size: 12px;">CARYPASS — Plateforme de santé numérique</p>
+      </div>
+    `;
+
+    await this.emailService.sendCustomEmail(to, `${doctorName} vous invite sur CARYPASS`, html);
   }
 }

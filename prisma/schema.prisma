@@ -208,6 +208,9 @@ model User {
   vouchersCreated      Voucher[]          @relation("VoucherCreatedBy")
   fieldAgent           FieldAgent?
   vouchersAssigned     Voucher[]          @relation("VoucherAssignedByAgent")
+  wallet               Wallet?
+  referralCode         ReferralCode?
+  referredBy           Referral[]         @relation("ReferredPatient")
 
   @@map("users")
 }
@@ -227,6 +230,9 @@ model Patient {
   city           String?
   region         String?
   emergencyToken String?   @unique @map("emergency_token")
+  referredByCode String?   @map("referred_by_code")
+  isMinor        Boolean   @default(false) @map("is_minor")
+  managedByGuardian Boolean @default(false) @map("managed_by_guardian")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -248,9 +254,37 @@ model Patient {
   pregnancies       Pregnancy[]
   hospitalisations  Hospitalisation[]
 
+  // Guardian relationships
+  guardianships     LegalGuardian[]    @relation("PatientGuardianships")  // guardians of this patient
+  guardianOf        LegalGuardian[]    @relation("GuardianOf")            // patients this one is a guardian of
+
   @@index([carypassId])
   @@index([userId])
   @@map("patients")
+}
+
+// ---------------------------------------------------------------------------
+// LegalGuardian — links a dependent Patient (minor) to a guardian Patient (parent)
+// ---------------------------------------------------------------------------
+model LegalGuardian {
+  id                String    @id @default(uuid())
+  dependentId       String    @map("dependent_id")       // the minor / managed patient
+  guardianPatientId String    @map("guardian_patient_id") // the adult patient acting as guardian
+  relationship      String    @default("parent")          // parent, tuteur, curateur, autre
+  isPrimary         Boolean   @default(true) @map("is_primary")
+  canManage         Boolean   @default(true) @map("can_manage") // false after transfer
+  transferredAt     DateTime? @map("transferred_at")
+  readOnlyAfterTransfer Boolean @default(true) @map("read_only_after_transfer") // keep view access
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  dependent Patient @relation("PatientGuardianships", fields: [dependentId], references: [id], onDelete: Cascade)
+  guardian  Patient @relation("GuardianOf", fields: [guardianPatientId], references: [id], onDelete: Cascade)
+
+  @@unique([dependentId, guardianPatientId])
+  @@index([guardianPatientId])
+  @@index([dependentId])
+  @@map("legal_guardians")
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +314,7 @@ model Doctor {
   appointments     Appointment[]
   institutions     DoctorInstitution[]
   hospitalisations Hospitalisation[]
+  sentInvitations  Invitation[]        @relation("DoctorInvitations")
 
   @@index([specialty])
   @@index([city])
@@ -347,22 +382,25 @@ model InstitutionDocument {
 // 4d. Invitation (email invitations for doctors/nurses)
 // ---------------------------------------------------------------------------
 model Invitation {
-  id            String   @id @default(uuid())
-  institutionId String   @map("institution_id")
-  email         String
-  role          Role     // doctor or nurse
-  token         String   @unique
-  message       String?
-  status        String   @default("pending") // pending, accepted, expired
-  invitedById   String   @map("invited_by_id")
-  expiresAt     DateTime @map("expires_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  institutionId      String?  @map("institution_id")
+  invitedByDoctorId  String?  @map("invited_by_doctor_id")
+  email              String
+  role               Role     // doctor or nurse
+  token              String   @unique
+  message            String?
+  status             String   @default("pending") // pending, accepted, expired
+  invitedById        String   @map("invited_by_id")
+  expiresAt          DateTime @map("expires_at")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   // Relations
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  invitedBy     User        @relation("InvitedByUser", fields: [invitedById], references: [id])
+  institution        Institution? @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  invitedByDoctor    Doctor?      @relation("DoctorInvitations", fields: [invitedByDoctorId], references: [id], onDelete: SetNull)
+  invitedBy          User         @relation("InvitedByUser", fields: [invitedById], references: [id])
 
   @@index([institutionId])
+  @@index([invitedByDoctorId])
   @@index([token])
   @@index([email])
   @@map("invitations")
@@ -429,6 +467,7 @@ model Consultation {
   transferredByNurse Nurse?           @relation("NurseTransferredConsultations", fields: [transferredByNurseId], references: [id])
   prescriptions      Prescription[]
   insuranceClaims    InsuranceClaim[]
+  labResults         LabResult[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -483,26 +522,31 @@ model PrescriptionItem {
 // 8. LabResult
 // ---------------------------------------------------------------------------
 model LabResult {
-  id            String          @id @default(uuid())
-  patientId     String          @map("patient_id")
-  uploadedById  String          @map("uploaded_by_id")
-  institutionId String?         @map("institution_id")
-  title         String
-  category      LabCategory     @default(autre)
-  fileUrl       String          @map("file_url")
-  date          DateTime
-  notes         String?
-  status        LabResultStatus @default(pending)
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+  id             String          @id @default(uuid())
+  patientId      String          @map("patient_id")
+  uploadedById   String          @map("uploaded_by_id")
+  institutionId  String?         @map("institution_id")
+  consultationId String?         @map("consultation_id")
+  title          String
+  category       LabCategory     @default(autre)
+  fileUrl        String          @map("file_url")
+  fileSize       Int?            @map("file_size")
+  mimeType       String?         @map("mime_type")
+  date           DateTime
+  notes          String?
+  status         LabResultStatus @default(pending)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   // Relations
-  patient     Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  uploadedBy  User           @relation("UploadedBy", fields: [uploadedById], references: [id])
-  institution Institution?   @relation(fields: [institutionId], references: [id], onDelete: SetNull)
-  items       LabResultItem[]
+  patient      Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy   User            @relation("UploadedBy", fields: [uploadedById], references: [id])
+  institution  Institution?    @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  consultation Consultation?   @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  items        LabResultItem[]
 
   @@index([patientId])
+  @@index([consultationId])
   @@index([date])
   @@map("lab_results")
 }
@@ -1136,7 +1180,7 @@ model EvolutionNote {
 model Nurse {
   id            String    @id @default(uuid())
   userId        String    @unique @map("user_id")
-  institutionId String    @map("institution_id")
+  institutionId String?   @map("institution_id")
   specialty     String?   // ex: "soins généraux", "pédiatrie", "urgences"
   licenseNumber String?   @unique @map("license_number")
   isVerified    Boolean   @default(false) @map("is_verified")
@@ -1145,7 +1189,7 @@ model Nurse {
 
   // Relations
   user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  institution         Institution               @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  institution         Institution?              @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   vitalsRecorded      HospitalisationVital[]
   medicationsGiven    HospitalisationMedication[]
   carePlanExecutions             CarePlanExecution[]
@@ -1328,6 +1372,96 @@ model Voucher {
   @@index([type])
   @@index([assignedByAgentId])
   @@map("vouchers")
+}
+
+// ---------------------------------------------------------------------------
+// Wallet — doctor wallet for referral earnings
+// ---------------------------------------------------------------------------
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  balance   Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+// ---------------------------------------------------------------------------
+// WalletTransaction — wallet transaction history
+// ---------------------------------------------------------------------------
+enum WalletTransactionType {
+  referral_earning    // earned from patient referral
+  subscription_debit  // annual 10,000 FCFA deduction
+  withdrawal          // payout to Mobile Money
+  manual_credit       // manual adjustment by admin
+}
+
+model WalletTransaction {
+  id          String                @id @default(uuid())
+  walletId    String                @map("wallet_id")
+  type        WalletTransactionType
+  amount      Decimal               @db.Decimal(12, 2)
+  description String?
+  referenceId String?               @map("reference_id") // paymentId or payoutId
+  balanceBefore Decimal             @map("balance_before") @db.Decimal(12, 2)
+  balanceAfter  Decimal             @map("balance_after") @db.Decimal(12, 2)
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  // Relations
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("wallet_transactions")
+}
+
+// ---------------------------------------------------------------------------
+// ReferralCode — doctor promo codes for patient referrals
+// ---------------------------------------------------------------------------
+model ReferralCode {
+  id          String   @id @default(uuid())
+  doctorUserId String  @unique @map("doctor_user_id")
+  code        String   @unique
+  totalReferrals Int   @default(0) @map("total_referrals")
+  totalEarnings  Decimal @default(0) @map("total_earnings") @db.Decimal(12, 2)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  doctorUser User       @relation(fields: [doctorUserId], references: [id], onDelete: Cascade)
+  referrals  Referral[]
+
+  @@index([code])
+  @@map("referral_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Referral — tracks which patient was referred by which doctor
+// ---------------------------------------------------------------------------
+model Referral {
+  id              String   @id @default(uuid())
+  referralCodeId  String   @map("referral_code_id")
+  patientUserId   String   @map("patient_user_id")
+  paymentId       String?  @map("payment_id") // the initial payment that triggered the referral
+  doctorEarning   Decimal  @default(0) @map("doctor_earning") @db.Decimal(12, 2)
+  platformEarning Decimal  @default(0) @map("platform_earning") @db.Decimal(12, 2)
+  isInitialPayment Boolean @default(true) @map("is_initial_payment")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  patientUser  User         @relation("ReferredPatient", fields: [patientUserId], references: [id], onDelete: Cascade)
+
+  @@unique([referralCodeId, patientUserId])
+  @@index([patientUserId])
+  @@map("referrals")
 }
 
 // ============================================================================

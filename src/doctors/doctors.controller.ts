@@ -20,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { DoctorsService } from './doctors.service';
 import { DoctorSyncService } from './doctor-sync.service';
+import { InvitationsService } from '../institutions/invitations.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { DoctorFilterDto } from './dto/doctor-filter.dto';
@@ -37,6 +38,7 @@ export class DoctorsController {
   constructor(
     private readonly doctorsService: DoctorsService,
     private readonly doctorSyncService: DoctorSyncService,
+    private readonly invitationsService: InvitationsService,
   ) {}
 
   /**
@@ -184,5 +186,43 @@ export class DoctorsController {
   @Get(':id/sync/appointments')
   async getSyncedAppointments(@Param('id') id: string, @Query('limit') limit?: string) {
     return this.doctorSyncService.getSyncedAppointments(id, limit ? parseInt(limit) : 50);
+  }
+
+  // ---------------------------------------------------------------------------
+  // NURSE INVITATIONS (doctor invites nurses into his team)
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/invitations')
+  @Roles('doctor')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Inviter un(e) infirmier(e) à rejoindre CARYPASS' })
+  async inviteNurse(
+    @Param('id') doctorId: string,
+    @CurrentUser() currentUser: { sub: string },
+    @Body() body: { email: string; message?: string },
+  ) {
+    return this.invitationsService.createDoctorInvitation(
+      doctorId,
+      currentUser.sub,
+      body.email,
+      body.message,
+    );
+  }
+
+  @Get(':id/invitations')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Lister les invitations envoyées par ce médecin' })
+  async listInvitations(@Param('id') doctorId: string) {
+    return this.invitationsService.getDoctorInvitations(doctorId);
+  }
+
+  @Delete(':id/invitations/:invitationId')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Annuler une invitation en attente' })
+  async cancelInvitation(
+    @Param('id') doctorId: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.invitationsService.cancelDoctorInvitation(invitationId, doctorId);
   }
 }

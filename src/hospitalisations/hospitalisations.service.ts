@@ -217,8 +217,17 @@ export class HospitalisationsService {
     const patient = await this.prisma.patient.findUnique({ where: { userId } });
     if (!patient) throw new NotFoundException('Profil patient non trouvé');
 
+    // Include dependents managed by this patient
+    const guardianships = await this.prisma.legalGuardian.findMany({
+      where: { guardianPatientId: patient.id },
+      select: { dependentId: true, canManage: true, readOnlyAfterTransfer: true },
+    });
+    const dependentIds = guardianships
+      .filter((g) => g.canManage || g.readOnlyAfterTransfer)
+      .map((g) => g.dependentId);
+
     return this.prisma.hospitalisation.findMany({
-      where: { patientId: patient.id },
+      where: { patientId: { in: [patient.id, ...dependentIds] } },
       include: {
         doctor: {
           include: {

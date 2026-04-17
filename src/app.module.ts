@@ -41,6 +41,8 @@ import { GatewayModule } from './gateway/gateway.module';
 import { SmsModule } from './sms/sms.module';
 import { VouchersModule } from './vouchers/vouchers.module';
 import { FieldAgentsModule } from './field-agents/field-agents.module';
+import { WalletModule } from './wallet/wallet.module';
+import { ReferralModule } from './referral/referral.module';
 
 @Module({
   imports: [
@@ -138,6 +140,8 @@ import { FieldAgentsModule } from './field-agents/field-agents.module';
     // MessagingModule, // disabled
     VouchersModule,
     FieldAgentsModule,
+    WalletModule,
+    ReferralModule,
   ],
   providers: [
     // Global Sentry exception filter. Safe to register even when Sentry

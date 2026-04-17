@@ -48,6 +48,64 @@ export class PatientsController {
     return this.patientsService.findAll(filters, user);
   }
 
+  // ─── Dependents / Legal Guardianship ───
+  // IMPORTANT: these routes MUST come before /:id
+
+  /**
+   * GET /patients/me/dependents
+   * List dependents (minors managed by current patient).
+   */
+  @Get('me/dependents')
+  @Roles('patient')
+  @ApiOperation({ summary: 'Lister mes dépendants (mineurs sous ma tutelle)' })
+  async getMyDependents(@CurrentUser() user: any) {
+    return this.patientsService.getMyDependents(user.id);
+  }
+
+  /**
+   * POST /patients/dependents
+   * Create a new dependent (minor) under current user's guardianship.
+   */
+  @Post('dependents')
+  @Roles('patient')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Créer un dépendant (mineur à charge)' })
+  async createDependent(@Body() body: any, @CurrentUser() user: any) {
+    return this.patientsService.createDependent(user.id, body);
+  }
+
+  /**
+   * PATCH /patients/dependents/:dependentId
+   * Update a dependent's info.
+   */
+  @Patch('dependents/:dependentId')
+  @Roles('patient')
+  @ApiOperation({ summary: 'Modifier un dépendant' })
+  async updateDependent(
+    @Param('dependentId') dependentId: string,
+    @Body() body: any,
+    @CurrentUser() user: any,
+  ) {
+    return this.patientsService.updateDependent(user.id, dependentId, body);
+  }
+
+  /**
+   * POST /patients/dependents/:dependentId/transfer
+   * Transfer management of a dependent (when they become of age).
+   * The dependent must set a new password + email.
+   */
+  @Post('dependents/:dependentId/transfer')
+  @Roles('patient')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Transférer la gestion d\'un dépendant devenu majeur' })
+  async transferDependent(
+    @Param('dependentId') dependentId: string,
+    @Body() body: { newEmail: string; newPassword: string; keepReadAccess?: boolean },
+    @CurrentUser() user: any,
+  ) {
+    return this.patientsService.transferDependent(user.id, dependentId, body);
+  }
+
   /**
    * GET /patients/carypass/:carypassId
    * Get a patient by CaryPass ID.

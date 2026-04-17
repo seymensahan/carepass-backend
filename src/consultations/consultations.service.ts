@@ -38,7 +38,15 @@ export class ConsultationsService {
       if (!patient) {
         throw new NotFoundException('Profil patient non trouve');
       }
-      where.patientId = patient.id;
+      // Include consultations of dependents (managed + read-only after transfer)
+      const guardianships = await this.prisma.legalGuardian.findMany({
+        where: { guardianPatientId: patient.id },
+        select: { dependentId: true, canManage: true, readOnlyAfterTransfer: true },
+      });
+      const dependentIds = guardianships
+        .filter((g) => g.canManage || g.readOnlyAfterTransfer)
+        .map((g) => g.dependentId);
+      where.patientId = { in: [patient.id, ...dependentIds] };
     }
     // super_admin and institution_admin can see all (with optional filters)
 

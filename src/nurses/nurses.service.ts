@@ -22,13 +22,13 @@ export class NursesService {
     return nurse;
   }
 
-  private async ensureHospInstitution(hospitalisationId: string, institutionId: string) {
+  private async ensureHospInstitution(hospitalisationId: string, institutionId: string | null) {
     const hosp = await this.prisma.hospitalisation.findUnique({
       where: { id: hospitalisationId },
       select: { institutionId: true },
     });
     if (!hosp) throw new NotFoundException('Hospitalisation non trouvée');
-    if (hosp.institutionId !== institutionId) {
+    if (!institutionId || hosp.institutionId !== institutionId) {
       throw new ForbiddenException('Cette hospitalisation ne fait pas partie de votre institution');
     }
     return hosp;
@@ -73,7 +73,7 @@ export class NursesService {
       pendingTasks,
       completedToday,
       nurseName: `${nurse.user.firstName} ${nurse.user.lastName}`,
-      institutionName: nurse.institution.name,
+      institutionName: nurse.institution?.name ?? null,
     };
   }
 

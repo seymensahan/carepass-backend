@@ -67,6 +67,34 @@ export class UsersService {
 
     if (user.role === Role.patient && patient) {
       profile.patient = patient;
+
+      // Include dependents (minors managed by this patient)
+      const guardianships = await this.prisma.legalGuardian.findMany({
+        where: { guardianPatientId: patient.id },
+        include: {
+          dependent: {
+            include: {
+              user: { select: { firstName: true, lastName: true, avatarUrl: true } },
+            },
+          },
+        },
+      });
+      profile.dependents = guardianships.map((g) => ({
+        guardianshipId: g.id,
+        patientId: g.dependentId,
+        canManage: g.canManage,
+        transferredAt: g.transferredAt,
+        readOnlyAfterTransfer: g.readOnlyAfterTransfer,
+        relationship: g.relationship,
+        carypassId: g.dependent.carypassId,
+        firstName: g.dependent.user.firstName,
+        lastName: g.dependent.user.lastName,
+        dateOfBirth: g.dependent.dateOfBirth,
+        gender: g.dependent.gender,
+        bloodGroup: g.dependent.bloodGroup,
+        avatarUrl: g.dependent.user.avatarUrl,
+        isMinor: g.dependent.isMinor,
+      }));
     }
 
     if (user.role === Role.doctor && doctor) {

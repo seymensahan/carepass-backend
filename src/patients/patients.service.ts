@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcrypt';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientFilterDto } from './dto/patient-filter.dto';
@@ -497,6 +499,24 @@ export class PatientsService {
     // Super admin
     if (user.role === 'super_admin') return;
 
+    // Legal guardian — patient is a dependent managed (or previously managed with read access) by current user
+    if (user.role === 'patient') {
+      const guardianPatient = await this.prisma.patient.findUnique({ where: { userId: user.id } });
+      if (guardianPatient && (patient as any).id) {
+        const guardianship = await this.prisma.legalGuardian.findUnique({
+          where: {
+            dependentId_guardianPatientId: {
+              dependentId: (patient as any).id,
+              guardianPatientId: guardianPatient.id,
+            },
+          },
+        });
+        if (guardianship && (guardianship.canManage || guardianship.readOnlyAfterTransfer)) {
+          return;
+        }
+      }
+    }
+
     // Doctor with active access grant
     if (user.role === 'doctor') {
       const doctor = await this.prisma.doctor.findUnique({
@@ -571,5 +591,310 @@ export class PatientsService {
       return counter;
     });
     return `CP-${year}-${result.toString().padStart(5, '0')}`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DEPENDENTS / LEGAL GUARDIANSHIP
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * List dependents managed by the current user (guardian).
+   * Returns both actively-managed and past-managed (read-only after transfer).
+   */
+  async getMyDependents(userId: string) {
+    const guardianPatient = await this.prisma.patient.findUnique({ where: { userId } });
+    if (!guardianPatient) {
+      throw new NotFoundException('Profil patient non trouvé');
+    }
+
+    const guardianships = await this.prisma.legalGuardian.findMany({
+      where: { guardianPatientId: guardianPatient.id },
+      include: {
+        dependent: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatarUrl: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      success: true,
+      data: guardianships.map((g) => ({
+        guardianshipId: g.id,
+        relationship: g.relationship,
+        canManage: g.canManage,
+        transferredAt: g.transferredAt,
+        readOnlyAfterTransfer: g.readOnlyAfterTransfer,
+        dependent: {
+          id: g.dependent.id,
+          carypassId: g.dependent.carypassId,
+          firstName: g.dependent.user.firstName,
+          lastName: g.dependent.user.lastName,
+          dateOfBirth: g.dependent.dateOfBirth,
+          gender: g.dependent.gender,
+          bloodGroup: g.dependent.bloodGroup,
+          genotype: g.dependent.genotype,
+          isMinor: g.dependent.isMinor,
+          avatarUrl: g.dependent.user.avatarUrl,
+        },
+      })),
+    };
+  }
+
+  /**
+   * Create a new dependent (minor) under current user's guardianship.
+   * Creates a synthetic User + Patient + LegalGuardian link.
+   */
+  async createDependent(
+    guardianUserId: string,
+    data: {
+      firstName: string;
+      lastName: string;
+      dateOfBirth: string;
+      gender?: 'male' | 'female' | 'other';
+      bloodGroup?: string;
+      genotype?: string;
+      relationship?: string;
+      email?: string; // optional, auto-generated if missing
+    },
+  ) {
+    if (!data.firstName || !data.lastName || !data.dateOfBirth) {
+      throw new BadRequestException('firstName, lastName et dateOfBirth sont requis');
+    }
+
+    const guardianPatient = await this.prisma.patient.findUnique({
+      where: { userId: guardianUserId },
+      include: { user: { select: { email: true } } },
+    });
+    if (!guardianPatient) {
+      throw new NotFoundException('Profil patient tuteur non trouvé');
+    }
+
+    // Generate synthetic email if not provided
+    const parentEmail = guardianPatient.user.email;
+    const slug = `${data.firstName}.${data.lastName}`.toLowerCase().replace(/[^a-z0-9.]/g, '');
+    const syntheticEmail = data.email || parentEmail.replace('@', `+${slug}.${Date.now()}@`);
+
+    // Check email uniqueness
+    const existing = await this.prisma.user.findUnique({ where: { email: syntheticEmail } });
+    if (existing) {
+      throw new ConflictException('Un compte avec cet email existe déjà');
+    }
+
+    const carypassId = await this.generateCarypassId();
+    // Random placeholder password until transfer
+    const placeholderHash = await bcrypt.hash(uuidv4(), 12);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: syntheticEmail,
+          passwordHash: placeholderHash,
+          role: 'patient',
+          availableRoles: ['patient'],
+          firstName: data.firstName,
+          lastName: data.lastName,
+          isActive: false, // Inactive until transfer
+        },
+      });
+
+      const patient = await tx.patient.create({
+        data: {
+          userId: user.id,
+          carypassId,
+          dateOfBirth: new Date(data.dateOfBirth),
+          gender: data.gender as any,
+          bloodGroup: data.bloodGroup,
+          genotype: data.genotype,
+          isMinor: true,
+          managedByGuardian: true,
+        },
+      });
+
+      const guardianship = await tx.legalGuardian.create({
+        data: {
+          dependentId: patient.id,
+          guardianPatientId: guardianPatient.id,
+          relationship: data.relationship || 'parent',
+          isPrimary: true,
+          canManage: true,
+        },
+      });
+
+      return { user, patient, guardianship };
+    });
+
+    return {
+      success: true,
+      data: {
+        guardianshipId: result.guardianship.id,
+        dependent: {
+          id: result.patient.id,
+          carypassId: result.patient.carypassId,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+          dateOfBirth: result.patient.dateOfBirth,
+          gender: result.patient.gender,
+          bloodGroup: result.patient.bloodGroup,
+          genotype: result.patient.genotype,
+          isMinor: result.patient.isMinor,
+        },
+      },
+    };
+  }
+
+  /**
+   * Update a dependent's info. Only the active guardian can update.
+   */
+  async updateDependent(guardianUserId: string, dependentId: string, data: any) {
+    const guardianPatient = await this.prisma.patient.findUnique({ where: { userId: guardianUserId } });
+    if (!guardianPatient) throw new NotFoundException('Tuteur non trouvé');
+
+    const guardianship = await this.prisma.legalGuardian.findUnique({
+      where: {
+        dependentId_guardianPatientId: { dependentId, guardianPatientId: guardianPatient.id },
+      },
+      include: { dependent: { include: { user: true } } },
+    });
+    if (!guardianship) throw new NotFoundException('Vous n\'êtes pas tuteur de ce dépendant');
+    if (!guardianship.canManage) {
+      throw new ForbiddenException('La gestion de ce dépendant a été transférée');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const userUpdates: any = {};
+      if (data.firstName) userUpdates.firstName = data.firstName;
+      if (data.lastName) userUpdates.lastName = data.lastName;
+      if (Object.keys(userUpdates).length > 0) {
+        await tx.user.update({ where: { id: guardianship.dependent.userId }, data: userUpdates });
+      }
+
+      const patientUpdates: any = {};
+      if (data.dateOfBirth) patientUpdates.dateOfBirth = new Date(data.dateOfBirth);
+      if (data.gender !== undefined) patientUpdates.gender = data.gender;
+      if (data.bloodGroup !== undefined) patientUpdates.bloodGroup = data.bloodGroup;
+      if (data.genotype !== undefined) patientUpdates.genotype = data.genotype;
+      return tx.patient.update({ where: { id: dependentId }, data: patientUpdates });
+    });
+
+    return { success: true, data: updated };
+  }
+
+  /**
+   * Transfer management of a dependent to themselves.
+   * Called when the dependent reaches the configured age.
+   */
+  async transferDependent(
+    guardianUserId: string,
+    dependentId: string,
+    data: { newEmail: string; newPassword: string; keepReadAccess?: boolean },
+  ) {
+    if (!data.newEmail || !data.newPassword) {
+      throw new BadRequestException('Nouvel email et mot de passe requis');
+    }
+    if (data.newPassword.length < 6) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins 6 caractères');
+    }
+
+    const guardianPatient = await this.prisma.patient.findUnique({ where: { userId: guardianUserId } });
+    if (!guardianPatient) throw new NotFoundException('Tuteur non trouvé');
+
+    const guardianship = await this.prisma.legalGuardian.findUnique({
+      where: {
+        dependentId_guardianPatientId: { dependentId, guardianPatientId: guardianPatient.id },
+      },
+      include: { dependent: { include: { user: true } } },
+    });
+    if (!guardianship) throw new NotFoundException('Vous n\'êtes pas tuteur de ce dépendant');
+    if (!guardianship.canManage) {
+      throw new BadRequestException('La gestion de ce dépendant a déjà été transférée');
+    }
+
+    // Check minimum age from system settings
+    const ageSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'dependent_transfer_min_age' },
+    });
+    const minAge = parseInt(ageSetting?.value || '16');
+
+    const dob = new Date(guardianship.dependent.dateOfBirth);
+    const ageYears = (Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000);
+    if (ageYears < minAge) {
+      throw new BadRequestException(
+        `Le dépendant doit avoir au moins ${minAge} ans pour le transfert (âge actuel: ${Math.floor(ageYears)} ans)`,
+      );
+    }
+
+    // Check new email is not taken by another active user
+    const existingEmail = await this.prisma.user.findUnique({ where: { email: data.newEmail } });
+    if (existingEmail && existingEmail.id !== guardianship.dependent.userId) {
+      throw new ConflictException('Cet email est déjà utilisé');
+    }
+
+    const passwordHash = await bcrypt.hash(data.newPassword, 12);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Update user: activate, new email, new password
+      await tx.user.update({
+        where: { id: guardianship.dependent.userId },
+        data: {
+          email: data.newEmail,
+          passwordHash,
+          isActive: true,
+        },
+      });
+
+      // Update patient: no longer managed by guardian
+      await tx.patient.update({
+        where: { id: dependentId },
+        data: {
+          isMinor: false,
+          managedByGuardian: false,
+        },
+      });
+
+      // Update guardianship: mark as transferred
+      await tx.legalGuardian.update({
+        where: { id: guardianship.id },
+        data: {
+          canManage: false,
+          transferredAt: new Date(),
+          readOnlyAfterTransfer: data.keepReadAccess ?? true,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Gestion transférée avec succès. Le dépendant peut maintenant se connecter avec son propre compte.',
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GUARDIANSHIP HELPERS (used by access control)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Returns the list of patient IDs a user can access as a guardian.
+   * Includes both actively managed and read-only-after-transfer dependents.
+   */
+  async getManagedPatientIds(userId: string, includeReadOnly = true): Promise<string[]> {
+    const patient = await this.prisma.patient.findUnique({ where: { userId } });
+    if (!patient) return [];
+
+    const guardianships = await this.prisma.legalGuardian.findMany({
+      where: {
+        guardianPatientId: patient.id,
+        ...(includeReadOnly ? {} : { canManage: true }),
+      },
+      select: { dependentId: true, canManage: true, readOnlyAfterTransfer: true },
+    });
+
+    return guardianships
+      .filter((g) => g.canManage || g.readOnlyAfterTransfer)
+      .map((g) => g.dependentId);
   }
 }
