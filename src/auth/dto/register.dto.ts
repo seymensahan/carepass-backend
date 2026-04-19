@@ -61,6 +61,23 @@ export class RegisterDto {
   @IsString()
   nurseLicenseNumber?: string;
 
+  // ─── Doctor fields (used when role = doctor) ───
+
+  @ApiPropertyOptional({ example: 'Médecine générale' })
+  @IsOptional()
+  @IsString()
+  doctorSpecialty?: string;
+
+  @ApiPropertyOptional({ example: 'MED-CMR-2025-042' })
+  @IsOptional()
+  @IsString()
+  doctorLicenseNumber?: string;
+
+  @ApiPropertyOptional({ example: 'Douala' })
+  @IsOptional()
+  @IsString()
+  doctorCity?: string;
+
   // ─── Institution fields (used when role = institution_admin) ───
 
   @ApiPropertyOptional({ example: 'Clinique de la Cathédrale' })

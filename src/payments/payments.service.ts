@@ -340,8 +340,9 @@ export class PaymentsService {
             },
           });
 
-          // Create patient profile if role is patient
-          if (role === 'patient') {
+          // Healthcare roles (doctor, nurse) also get a patient profile so they can manage their own file
+          const isHealthcareRole = role === 'doctor' || role === 'nurse';
+          if (role === 'patient' || isHealthcareRole) {
             // Generate CaryPass ID
             const setting = await tx.systemSetting.findUnique({ where: { key: 'carypass_id_counter' } });
             const counter = parseInt(setting?.value || '0') + 1;
@@ -360,6 +361,25 @@ export class PaymentsService {
                 gender: regData.gender || undefined,
                 bloodGroup: regData.bloodGroup || undefined,
                 referredByCode: regData.referralCode || undefined,
+              },
+            });
+
+            if (isHealthcareRole) {
+              await tx.user.update({
+                where: { id: user.id },
+                data: { availableRoles: [role, 'patient'] },
+              });
+            }
+          }
+
+          // Create Doctor profile for role=doctor
+          if (role === 'doctor') {
+            await tx.doctor.create({
+              data: {
+                userId: user.id,
+                specialty: regData.doctorSpecialty || 'Médecine générale',
+                licenseNumber: regData.doctorLicenseNumber || `MED-${Date.now()}`,
+                city: regData.doctorCity,
               },
             });
           }

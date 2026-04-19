@@ -97,6 +97,18 @@ export class AuthService {
       });
     }
 
+    // If role is doctor, create Doctor profile (solo doctor, no institution)
+    if (dto.role === Role.doctor) {
+      await this.prisma.doctor.create({
+        data: {
+          userId: user.id,
+          specialty: dto.doctorSpecialty || 'Médecine générale',
+          licenseNumber: dto.doctorLicenseNumber || `MED-${Date.now()}`,
+          city: dto.doctorCity,
+        },
+      });
+    }
+
     // If role is institution_admin, create Institution linked to this user
     if (dto.role === Role.institution_admin && dto.institutionName) {
       await this.prisma.institution.create({
