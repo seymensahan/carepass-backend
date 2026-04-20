@@ -623,7 +623,7 @@ export class PaymentsService {
   async seedDefaultPlans() {
     const defaults = [
       { slug: 'patient', name: 'Patient CaryPass', priceMonthly: 84, priceYearly: 1000, description: 'Accès à la plateforme CaryPass' },
-      { slug: 'doctor_premium', name: 'Médecin Premium', priceMonthly: 2000, priceYearly: 20000, description: 'Synchronisation multi-institution' },
+      { slug: 'doctor_premium', name: 'Médecin indépendant', priceMonthly: 0, priceYearly: 10000, description: 'Outils avancés pour les professionnels de santé' },
       { slug: 'clinique', name: 'Cliniques & Petits Centres', priceMonthly: 4167, priceYearly: 50000, description: 'Gestion clinique complète' },
       { slug: 'hopital_moyen', name: 'Hôpitaux Moyens', priceMonthly: 8334, priceYearly: 100000, description: 'Gestion hospitalière avancée' },
       { slug: 'grand_hopital', name: 'Grands Hôpitaux', priceMonthly: 20834, priceYearly: 250000, description: 'Solution hôpital complète' },

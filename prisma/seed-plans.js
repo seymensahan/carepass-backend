@@ -97,11 +97,11 @@ async function main() {
       isActive: true,
     },
     {
-      name: 'Médecin Premium',
+      name: 'Médecin indépendant',
       tier: 'medecin-premium',
       description: 'Outils avancés pour les professionnels de santé',
-      priceMonthly: 2000,
-      priceYearly: 20000,
+      priceMonthly: 1000,
+      priceYearly: 10000,
       maxDoctors: 1,
       maxNurses: 0,
       features: [
@@ -109,7 +109,7 @@ async function main() {
         "Consultations & ordonnances",
         "Hospitalisations",
         "Agenda & rendez-vous",
-        "Analytics avancés",
+        "Invitations d'infirmiers illimitées",
         "Support prioritaire",
       ],
       isActive: true,
