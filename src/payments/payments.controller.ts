@@ -55,6 +55,24 @@ export class PaymentsController {
   }
 
   /**
+   * GET /payments/registration/:depositId/poll
+   * PUBLIC: poll the registration payment status. Used by the mobile/web app
+   * after payment initiation to detect completion when the Pawapay webhook
+   * cannot reach our server (typically in dev/local environments).
+   *
+   * Returns { status: 'pending' | 'completed' | 'failed', credentials? }
+   * On 'completed', credentials = { accessToken, refreshToken, user } so the
+   * client can auto-login and redirect straight to the dashboard.
+   */
+  @Get('registration/:depositId/poll')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Poll le statut d\'un paiement d\'inscription (public)' })
+  pollRegistration(@Param('depositId') depositId: string) {
+    return this.paymentsService.pollRegistrationStatus(depositId);
+  }
+
+  /**
    * POST /payments/webhook
    * Pawapay webhook callback (public route).
    */

@@ -40,6 +40,31 @@ export class NursesService {
     return this.getNurse(userId);
   }
 
+  /**
+   * List all nurses (super_admin only).
+   * Returns nurse records with the joined User and Institution.
+   */
+  async listAll(limit = 100) {
+    return this.prisma.nurse.findMany({
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            isActive: true,
+            createdAt: true,
+          },
+        },
+        institution: { select: { id: true, name: true } },
+      },
+    });
+  }
+
   // ─── Dashboard ────────────────────────────────────────────────────────────
 
   async getDashboard(userId: string) {

@@ -21,24 +21,38 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @ApiTags('nurses')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('nurse')
 @Controller('nurses')
 export class NursesController {
   constructor(private readonly service: NursesService) {}
 
+  /**
+   * GET /nurses
+   * List all nurses (super_admin only).
+   * Used by the super admin dashboard to include nurses in the user list.
+   */
+  @Get()
+  @Roles('super_admin')
+  @ApiOperation({ summary: 'Lister toutes les infirmier(e)s (super_admin)' })
+  async listAllNurses(@Query('limit') limit?: string) {
+    return this.service.listAll(limit ? parseInt(limit, 10) : 100);
+  }
+
   @Get('profile')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Profil infirmier' })
   getProfile(@CurrentUser() user: any) {
     return this.service.getProfile(user.id);
   }
 
   @Get('dashboard')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Dashboard infirmier' })
   getDashboard(@CurrentUser() user: any) {
     return this.service.getDashboard(user.id);
   }
 
   @Get('hospitalisations')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Hospitalisations de l\'institution' })
   getHospitalisations(
     @CurrentUser() user: any,
@@ -48,6 +62,7 @@ export class NursesController {
   }
 
   @Get('hospitalisations/:id')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Détail d\'une hospitalisation' })
   getHospitalisationDetail(
     @CurrentUser() user: any,
@@ -57,6 +72,7 @@ export class NursesController {
   }
 
   @Post('care-plan/:itemId/execute')
+  @Roles('nurse')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Exécuter une tâche du cahier de charges' })
   executeCarePlanItem(
@@ -68,6 +84,7 @@ export class NursesController {
   }
 
   @Post('vitals')
+  @Roles('nurse')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Enregistrer des constantes vitales' })
   addVital(@CurrentUser() user: any, @Body() dto: AddVitalNurseDto) {
@@ -75,6 +92,7 @@ export class NursesController {
   }
 
   @Get('my-executions')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Mes exécutions récentes' })
   getMyExecutions(
     @CurrentUser() user: any,
@@ -84,12 +102,14 @@ export class NursesController {
   }
 
   @Get('pending-tasks')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Mes tâches en attente' })
   getPendingTasks(@CurrentUser() user: any) {
     return this.service.getPendingTasks(user.id);
   }
 
   @Get('patient-lookup/:carypassId')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Rechercher un patient par CaryPass ID (scan QR)' })
   patientLookup(
     @Param('carypassId') carypassId: string,
@@ -99,6 +119,7 @@ export class NursesController {
   }
 
   @Get('my-patients')
+  @Roles('nurse')
   @ApiOperation({ summary: 'Patients pris en charge par cette infirmière' })
   getMyPatients(@CurrentUser() user: any) {
     return this.service.getMyPatients(user.id);

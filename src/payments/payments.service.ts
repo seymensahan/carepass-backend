@@ -505,6 +505,126 @@ export class PaymentsService {
   }
 
   // ---------------------------------------------------------------------------
+  // POLL REGISTRATION STATUS — public, used by mobile/web after payment
+  // initiation to detect completion (workaround for webhook unavailability
+  // in dev/local environments).
+  //
+  // Flow:
+  //   1. Look up the PendingRegistration by depositId
+  //   2. If already completed → return tokens immediately so the client redirects
+  //   3. If still pending → query Pawapay for the latest status
+  //      - If COMPLETED → run handleRegistrationWebhook (idempotent), return tokens
+  //      - If FAILED → mark failed, return failure
+  //      - Else → return pending so the client keeps polling
+  // ---------------------------------------------------------------------------
+  async pollRegistrationStatus(depositId: string) {
+    const pendingReg = await this.prisma.pendingRegistration.findUnique({
+      where: { depositId },
+    });
+    if (!pendingReg) {
+      throw new NotFoundException('Inscription non trouvée');
+    }
+
+    // If completed already, just return the tokens for the existing user
+    if (pendingReg.status === 'completed') {
+      const regData = pendingReg.registrationData as any;
+      return this.buildLoginResponseForRegistration(regData?.email);
+    }
+
+    if (pendingReg.status === 'failed') {
+      return { success: false, status: 'failed', message: 'Le paiement a échoué.' };
+    }
+
+    // Still pending — query Pawapay
+    const status = await this.checkPawapayDepositStatus(depositId);
+    if (!status) {
+      return { success: true, status: 'pending', message: 'En attente de confirmation' };
+    }
+
+    const pawapayStatus = status.status as string;
+
+    if (pawapayStatus === 'COMPLETED') {
+      // Trigger the same logic as the webhook (idempotent — checks pendingReg.status)
+      try {
+        await this.handleRegistrationWebhook(pendingReg, 'COMPLETED', status);
+      } catch (err) {
+        this.logger.error(`pollRegistrationStatus: handleRegistrationWebhook failed: ${err}`);
+        return { success: false, status: 'failed', message: 'Erreur lors de la création du compte.' };
+      }
+
+      const regData = pendingReg.registrationData as any;
+      return this.buildLoginResponseForRegistration(regData?.email);
+    }
+
+    if (pawapayStatus === 'FAILED' || pawapayStatus === 'REJECTED') {
+      await this.prisma.pendingRegistration.update({
+        where: { id: pendingReg.id },
+        data: { status: 'failed' },
+      });
+      return {
+        success: false,
+        status: 'failed',
+        message: status.failureReason?.failureMessage || 'Paiement refusé.',
+      };
+    }
+
+    // ACCEPTED / SUBMITTED / PROCESSING — keep polling
+    return {
+      success: true,
+      status: 'pending',
+      message: 'En attente de confirmation du paiement',
+    };
+  }
+
+  /**
+   * Build a login response (accessToken + refreshToken + user) for a freshly
+   * registered user. Used by pollRegistrationStatus to auto-login.
+   * Imports JwtService lazily to avoid a circular dependency between
+   * PaymentsModule and AuthModule.
+   */
+  private async buildLoginResponseForRegistration(email: string) {
+    if (!email) {
+      return { success: false, status: 'failed', message: 'Email introuvable' };
+    }
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return { success: true, status: 'pending', message: 'Compte en cours de création' };
+    }
+
+    const jwt = await import('@nestjs/jwt');
+    const jwtService = new jwt.JwtService({
+      secret: this.configService.getOrThrow<string>('JWT_SECRET'),
+      signOptions: {
+        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '15m') as any,
+      },
+    });
+    const payload = { sub: user.id, email: user.email, role: user.role };
+    const accessToken = await jwtService.signAsync(payload);
+    const refreshToken = await jwtService.signAsync(payload, {
+      secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as any,
+    });
+
+    return {
+      success: true,
+      status: 'completed',
+      data: {
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          availableRoles: user.availableRoles?.length > 0 ? user.availableRoles : [user.role],
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+        },
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // GET PAYMENT HISTORY
   // ---------------------------------------------------------------------------
   async getPaymentHistory(userId: string, page: number = 1, limit: number = 20) {

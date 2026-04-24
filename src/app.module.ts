@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { SentryModule, SentryGlobalFilter } from '@sentry/nestjs/setup';
 import * as Joi from 'joi';
@@ -43,6 +44,7 @@ import { VouchersModule } from './vouchers/vouchers.module';
 import { FieldAgentsModule } from './field-agents/field-agents.module';
 import { WalletModule } from './wallet/wallet.module';
 import { ReferralModule } from './referral/referral.module';
+import { CronJobsModule } from './cron-jobs/cron-jobs.module';
 
 @Module({
   imports: [
@@ -100,6 +102,9 @@ import { ReferralModule } from './referral/referral.module';
     // Sentry — no-op if SENTRY_DSN is not set (see src/instrument.ts).
     SentryModule.forRoot(),
 
+    // Scheduled tasks — doctor subscription auto-renewal runs daily at 02:00.
+    ScheduleModule.forRoot(),
+
     // Infrastructure
     DatabaseModule,
     AppCacheModule,
@@ -140,6 +145,7 @@ import { ReferralModule } from './referral/referral.module';
     // MessagingModule, // disabled
     VouchersModule,
     FieldAgentsModule,
+    CronJobsModule,
     WalletModule,
     ReferralModule,
   ],

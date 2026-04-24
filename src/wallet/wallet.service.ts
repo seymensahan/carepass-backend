@@ -14,7 +14,6 @@ export class WalletService {
   private readonly logger = new Logger(WalletService.name);
   private readonly pawapayBaseUrl: string;
   private readonly pawapayApiKey: string | undefined;
-  private readonly MINIMUM_BALANCE = 10000; // 10,000 FCFA reserved for annual subscription
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -25,6 +24,40 @@ export class WalletService {
       'https://api.pawapay.io',
     );
     this.pawapayApiKey = this.configService.get<string>('PAWAPAY_API_KEY');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Get current doctor subscription price (dynamic — from Plan table)
+  // Falls back to 10,000 FCFA if no doctor plan found
+  // ---------------------------------------------------------------------------
+  async getDoctorSubscriptionPrice(): Promise<number> {
+    const doctorPlan = await this.prisma.plan.findFirst({
+      where: {
+        slug: {
+          in: [
+            'medecin-premium',  // current production slug
+            'doctor',
+            'medecin',
+            'doctor-solo',
+            'doctor_annual',
+            'medecin_annual',
+            'doctor_premium',
+            'doctor-premium',
+          ],
+        },
+        isActive: true,
+      },
+    });
+
+    if (doctorPlan?.priceYearly) {
+      return Number(doctorPlan.priceYearly);
+    }
+    if (doctorPlan?.priceMonthly) {
+      // If only monthly is set, annualize it
+      return Number(doctorPlan.priceMonthly) * 12;
+    }
+    // Fallback default — should never hit this in production
+    return 10000;
   }
 
   // ---------------------------------------------------------------------------
@@ -116,6 +149,7 @@ export class WalletService {
   // ---------------------------------------------------------------------------
   async getBalance(userId: string) {
     const wallet = await this.getOrCreateWallet(userId);
+    const minimumBalance = await this.getDoctorSubscriptionPrice();
     return {
       success: true,
       data: {
@@ -123,9 +157,9 @@ export class WalletService {
         balance: wallet.balance,
         availableForWithdrawal: Math.max(
           0,
-          Number(wallet.balance) - this.MINIMUM_BALANCE,
+          Number(wallet.balance) - minimumBalance,
         ),
-        minimumBalance: this.MINIMUM_BALANCE,
+        minimumBalance,
       },
     };
   }
@@ -249,13 +283,14 @@ export class WalletService {
 
     const wallet = await this.getOrCreateWallet(userId);
     const currentBalance = Number(wallet.balance);
+    const minimumBalance = await this.getDoctorSubscriptionPrice();
 
-    // Must keep minimum 10,000 FCFA for annual subscription
-    if (currentBalance < amount + this.MINIMUM_BALANCE) {
+    // Must keep minimum balance for annual subscription renewal
+    if (currentBalance < amount + minimumBalance) {
       throw new BadRequestException(
-        `Solde insuffisant. Vous devez conserver au minimum ${this.MINIMUM_BALANCE} FCFA pour votre abonnement annuel. ` +
+        `Solde insuffisant. Vous devez conserver au minimum ${minimumBalance} FCFA pour votre abonnement annuel. ` +
         `Solde actuel: ${currentBalance} FCFA, retrait demandé: ${amount} FCFA, ` +
-        `disponible pour retrait: ${Math.max(0, currentBalance - this.MINIMUM_BALANCE)} FCFA`,
+        `disponible pour retrait: ${Math.max(0, currentBalance - minimumBalance)} FCFA`,
       );
     }
 

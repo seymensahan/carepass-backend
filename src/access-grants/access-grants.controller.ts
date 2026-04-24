@@ -6,11 +6,14 @@ import {
   Param,
   Body,
   UseGuards,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { AccessGrantsService } from './access-grants.service';
+import { AccessGrantsCleanupService } from './access-grants-cleanup.service';
 import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -24,6 +27,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class AccessGrantsController {
   constructor(
     private readonly accessGrantsService: AccessGrantsService,
+    private readonly cleanupService: AccessGrantsCleanupService,
     private readonly prisma: PrismaClient,
   ) {}
 
@@ -85,5 +89,25 @@ export class AccessGrantsController {
   ) {
     const patientId = await this.getPatientId(user.id);
     return this.accessGrantsService.revoke(id, patientId);
+  }
+
+  /**
+   * POST /access-grants/admin/trigger-cleanup
+   * Manually run the expired-grants cleanup (super admin testing).
+   * In production, the same job runs every hour via @Cron.
+   */
+  @Post('admin/trigger-cleanup')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Déclencher la révocation des accès expirés (super admin)',
+  })
+  async triggerCleanup() {
+    const result = await this.cleanupService.triggerManually();
+    return {
+      success: true,
+      message: `${result.itemsAffected} accès expiré(s) révoqué(s)`,
+      data: result,
+    };
   }
 }

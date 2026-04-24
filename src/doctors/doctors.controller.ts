@@ -198,12 +198,12 @@ export class DoctorsController {
   @ApiOperation({ summary: 'Inviter un(e) infirmier(e) à rejoindre CARYPASS' })
   async inviteNurse(
     @Param('id') doctorId: string,
-    @CurrentUser() currentUser: { sub: string },
+    @CurrentUser('id') currentUserId: string,
     @Body() body: { email: string; message?: string },
   ) {
     return this.invitationsService.createDoctorInvitation(
       doctorId,
-      currentUser.sub,
+      currentUserId,
       body.email,
       body.message,
     );

@@ -812,4 +812,29 @@ export class FieldAgentsService {
 
     return updated;
   }
+
+  // =========================================================================
+  // SUPER ADMIN — Delete field agent permanently
+  // =========================================================================
+
+  /**
+   * Delete a field agent and the underlying User account.
+   * Cascading deletes (FieldVisit, UserOnboarding, Voucher.assignedByAgentId
+   * via SetNull) are handled by Prisma based on the schema relations.
+   * Frees up the email so it can be reused for invitations.
+   */
+  async deleteAgent(agentId: string) {
+    const agent = await this.prisma.fieldAgent.findUnique({
+      where: { id: agentId },
+    });
+    if (!agent) throw new NotFoundException('Agent non trouvé');
+
+    // Deleting the user cascades to FieldAgent (onDelete: Cascade in schema)
+    await this.prisma.user.delete({ where: { id: agent.userId } });
+
+    return {
+      success: true,
+      message: 'Agent supprimé avec succès',
+    };
+  }
 }

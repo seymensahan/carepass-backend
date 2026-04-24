@@ -110,6 +110,20 @@ export class SubscriptionsController {
   // ===================== SUBSCRIPTIONS (parametriques) =====================
 
   /**
+   * GET /subscriptions/my-status
+   * Get current user's subscription status.
+   * IMPORTANT: must be declared BEFORE @Get(':id'), otherwise "my-status"
+   * is matched as an ID and returns 404.
+   */
+  @Get('my-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vérifier le statut de son abonnement' })
+  @ApiResponse({ status: 200, description: 'Statut de l\'abonnement' })
+  myStatus(@CurrentUser('id') userId: string) {
+    return this.subscriptionsService.checkUserSubscriptionStatus(userId);
+  }
+
+  /**
    * GET /subscriptions/:id
    * Obtenir un abonnement par ID.
    */
@@ -180,17 +194,5 @@ export class SubscriptionsController {
   @ApiResponse({ status: 200, description: 'Nombre d\'abonnements expirés' })
   expireCheck() {
     return this.subscriptionsService.expireSubscriptions();
-  }
-
-  /**
-   * GET /subscriptions/my-status
-   * Get current user's subscription status.
-   */
-  @Get('my-status')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Vérifier le statut de son abonnement' })
-  @ApiResponse({ status: 200, description: 'Statut de l\'abonnement' })
-  myStatus(@CurrentUser('id') userId: string) {
-    return this.subscriptionsService.checkUserSubscriptionStatus(userId);
   }
 }

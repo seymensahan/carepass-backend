@@ -50,6 +50,34 @@ export class AuthController {
   }
 
   /**
+   * POST /auth/register-via-invitation
+   * Atomic registration + invitation acceptance. Idempotent — handles
+   * orphan user records from previous failed attempts. Public route.
+   */
+  @Post('register-via-invitation')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Inscription via invitation (nurse/doctor) — idempotente',
+  })
+  async registerViaInvitation(
+    @Body()
+    body: {
+      token: string;
+      firstName: string;
+      lastName: string;
+      phone: string;
+      password: string;
+    },
+  ) {
+    return this.invitationsService.registerViaInvitation(body.token, {
+      firstName: body.firstName,
+      lastName: body.lastName,
+      phone: body.phone,
+      password: body.password,
+    });
+  }
+
+  /**
    * POST /auth/login
    * Authenticate user and return JWT tokens. Public route.
    */

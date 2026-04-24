@@ -1585,3 +1585,42 @@ model UserOnboarding {
   @@index([status])
   @@map("user_onboardings")
 }
+
+// ============================================================================
+// CRON JOBS — Observability for scheduled background tasks
+// ============================================================================
+
+enum CronJobStatus {
+  running
+  success
+  partial_failure
+  failed
+}
+
+enum CronJobTrigger {
+  scheduled
+  manual
+}
+
+/**
+ * CronJobExecution — one row per cron run, persisted so super admin can audit
+ * what ran, when, and what it affected. Write-heavy but capped by retention.
+ */
+model CronJobExecution {
+  id             String         @id @default(uuid())
+  jobName        String         @map("job_name")             // e.g. "subscription-renewal"
+  trigger        CronJobTrigger @default(scheduled)
+  status         CronJobStatus  @default(running)
+  startedAt      DateTime       @default(now()) @map("started_at")
+  finishedAt     DateTime?      @map("finished_at")
+  durationMs     Int?           @map("duration_ms")
+  itemsProcessed Int            @default(0) @map("items_processed")
+  itemsAffected  Int            @default(0) @map("items_affected")
+  details        Json?          // { renewed, failed, expired, userIds: [...] }
+  errorMessage   String?        @map("error_message")
+
+  @@index([jobName])
+  @@index([startedAt])
+  @@index([status])
+  @@map("cron_job_executions")
+}

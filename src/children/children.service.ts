@@ -2,8 +2,11 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { CreateChildDto } from './dto/create-child.dto';
 import { UpdateChildDto } from './dto/update-child.dto';
 
@@ -154,5 +157,133 @@ export class ChildrenService {
     });
 
     return vaccinations;
+  }
+
+  /**
+   * Promote a Child record to a full Patient with its own CaryPass.
+   *
+   * Use case: parent wants to share their dependent's medical record with a
+   * doctor for a real consultation (not just emergency). The doctor needs a
+   * CaryPass to scan/lookup, which a basic Child record doesn't have.
+   *
+   * What this does:
+   *   1. Verifies the child belongs to the parent
+   *   2. If already promoted (Patient.guardianship.dependentId exists with this child) → returns existing
+   *   3. Else creates:
+   *      - User with synthetic email (no real account login — managed by parent)
+   *      - Patient with new CaryPass + emergencyToken
+   *      - LegalGuardian linking parent ↔ new dependent patient (canManage=true)
+   *      - Migrates the child's vaccinations to the new patient
+   *   4. Returns the new patient + carypassId for sharing
+   *
+   * The Child record is kept intact so the parent's UI doesn't break.
+   * A `promotedPatientId` link could be added later if needed.
+   */
+  async promoteToPatient(childId: string, parentPatientId: string) {
+    const child = await this.prisma.child.findUnique({
+      where: { id: childId },
+    });
+    if (!child) throw new NotFoundException('Enfant non trouvé');
+    if (child.parentId !== parentPatientId) {
+      throw new ForbiddenException('Accès refusé : cet enfant ne vous appartient pas');
+    }
+
+    // Idempotency check: do we already have a Patient promoted from this child?
+    // We detect by looking for an existing LegalGuardian whose dependent's user
+    // has the synthetic email pattern for this child.
+    const syntheticEmail = `dep-${childId}@carypass.local`;
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: syntheticEmail },
+      include: { patient: true },
+    });
+    if (existingUser?.patient) {
+      return {
+        success: true,
+        alreadyPromoted: true,
+        carypassId: existingUser.patient.carypassId,
+        emergencyToken: existingUser.patient.emergencyToken,
+        patientId: existingUser.patient.id,
+      };
+    }
+
+    // Generate CaryPass ID + emergency token in a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // CaryPass ID
+      const setting = await tx.systemSetting.findUnique({
+        where: { key: 'carypass_id_counter' },
+      });
+      const counter = parseInt(setting?.value || '0') + 1;
+      await tx.systemSetting.upsert({
+        where: { key: 'carypass_id_counter' },
+        update: { value: counter.toString() },
+        create: {
+          key: 'carypass_id_counter',
+          value: counter.toString(),
+          description: 'Compteur CaryPass ID',
+        },
+      });
+      const carypassId = `CP-${new Date().getFullYear()}-${counter
+        .toString()
+        .padStart(5, '0')}`;
+
+      // Random password — the dependent has no autonomous login (managed by guardian).
+      // We still need a hash so the User row is valid; reset flow can be used if
+      // the dependent ever needs an account.
+      const passwordHash = await bcrypt.hash(randomBytes(16).toString('hex'), 12);
+
+      // User
+      const user = await tx.user.create({
+        data: {
+          email: syntheticEmail,
+          passwordHash,
+          role: Role.patient,
+          availableRoles: [Role.patient],
+          firstName: child.firstName,
+          lastName: child.lastName,
+          isActive: false, // synthetic — no login allowed
+        },
+      });
+
+      // Patient
+      const emergencyToken = randomBytes(16).toString('hex');
+      const patient = await tx.patient.create({
+        data: {
+          userId: user.id,
+          carypassId,
+          dateOfBirth: child.dateOfBirth,
+          gender: child.gender,
+          bloodGroup: child.bloodGroup,
+          genotype: child.genotype,
+          emergencyToken,
+        },
+      });
+
+      // LegalGuardian link
+      await tx.legalGuardian.create({
+        data: {
+          dependentId: patient.id,
+          guardianPatientId: parentPatientId,
+          relationship: 'parent',
+          isPrimary: true,
+          canManage: true,
+        },
+      });
+
+      // Migrate the child's vaccinations to the new patient
+      await tx.vaccination.updateMany({
+        where: { childId: child.id },
+        data: { patientId: patient.id, childId: null },
+      });
+
+      return { patient, carypassId, emergencyToken };
+    });
+
+    return {
+      success: true,
+      alreadyPromoted: false,
+      carypassId: result.carypassId,
+      emergencyToken: result.emergencyToken,
+      patientId: result.patient.id,
+    };
   }
 }

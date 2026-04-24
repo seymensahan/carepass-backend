@@ -20,6 +20,41 @@ export class AccessRequestsService {
   ) {}
 
   /**
+   * Authorize a user to respond (approve/deny) to an access request.
+   * Allowed if the user is the patient themselves OR a guardian with canManage
+   * for that dependent.
+   *
+   * Throws ForbiddenException if neither condition is met.
+   */
+  private async assertCanRespondToRequest(
+    actingUserId: string,
+    patientUserId: string,
+    patientId: string,
+  ): Promise<void> {
+    if (patientUserId === actingUserId) return;
+
+    const actingPatient = await this.prisma.patient.findUnique({
+      where: { userId: actingUserId },
+      select: { id: true },
+    });
+    if (actingPatient) {
+      const guardianship = await this.prisma.legalGuardian.findUnique({
+        where: {
+          dependentId_guardianPatientId: {
+            dependentId: patientId,
+            guardianPatientId: actingPatient.id,
+          },
+        },
+      });
+      if (guardianship?.canManage) return;
+    }
+
+    throw new ForbiddenException(
+      'Cette demande ne vous appartient pas et vous n\'êtes pas tuteur de ce patient',
+    );
+  }
+
+  /**
    * List access requests with pagination.
    * Doctors see their outgoing requests; patients see their incoming requests.
    */
@@ -45,14 +80,21 @@ export class AccessRequestsService {
       if (!patient) {
         throw new NotFoundException('Profil patient non trouvé');
       }
-      where.patientId = patient.id;
+      // Include access requests for the patient AND for any dependents
+      // they manage (parent acting on behalf of a minor, etc.)
+      const guardianships = await this.prisma.legalGuardian.findMany({
+        where: { guardianPatientId: patient.id, canManage: true },
+        select: { dependentId: true },
+      });
+      const dependentIds = guardianships.map((g) => g.dependentId);
+      where.patientId = { in: [patient.id, ...dependentIds] };
     }
 
     if (filters.status) {
       where.status = filters.status;
     }
 
-    const [data, total] = await Promise.all([
+    const [rawData, total] = await Promise.all([
       this.prisma.accessRequest.findMany({
         where,
         include: {
@@ -65,6 +107,22 @@ export class AccessRequestsService {
       }),
       this.prisma.accessRequest.count({ where }),
     ]);
+
+    // For patient role: tag requests targeting a dependent so the UI can
+    // display "Pour [nom enfant]" labels.
+    const data = rawData.map((req) => {
+      const isForDependent =
+        role === 'patient' && req.patient.userId !== userId;
+      return {
+        ...req,
+        forDependent: isForDependent
+          ? {
+              firstName: req.patient.user.firstName,
+              lastName: req.patient.user.lastName,
+            }
+          : null,
+      };
+    });
 
     return {
       data,
@@ -171,7 +229,7 @@ export class AccessRequestsService {
       ).catch(() => {});
     }
 
-    // In-app notification for the patient
+    // In-app notification for the patient themselves
     if (accessRequest.patient?.user?.id) {
       await this.notificationsService.create(
         accessRequest.patient.user.id,
@@ -182,6 +240,46 @@ export class AccessRequestsService {
           link: '/access-requests/' + accessRequest.id,
         },
       ).catch(() => {});
+    }
+
+    // ALSO notify guardians (parent/tuteur). When the patient is a minor or a
+    // managed dependent, the guardian needs to know so they can approve on
+    // behalf of the dependent.
+    const guardianships = await this.prisma.legalGuardian.findMany({
+      where: { dependentId: patient.id, canManage: true },
+      include: {
+        guardian: {
+          include: { user: { select: { id: true, email: true, firstName: true } } },
+        },
+      },
+    });
+
+    const dependentName = `${accessRequest.patient.user.firstName} ${accessRequest.patient.user.lastName}`;
+    for (const g of guardianships) {
+      const guardianUser = g.guardian.user;
+      if (!guardianUser) continue;
+
+      // Email
+      if (guardianUser.email) {
+        this.emailService
+          .sendAccessRequestEmail(
+            guardianUser.email,
+            guardianUser.firstName,
+            requesterName,
+            `Pour le dossier de votre dépendant ${dependentName}. ${dto.reason || ''}`,
+          )
+          .catch(() => {});
+      }
+
+      // In-app notification
+      await this.notificationsService
+        .create(guardianUser.id, {
+          type: 'info',
+          title: 'Demande d\'accès — dépendant',
+          message: `${requesterName} demande l'accès au dossier de ${dependentName} (votre ${g.relationship}).`,
+          link: '/access-requests/' + accessRequest.id,
+        })
+        .catch(() => {});
     }
 
     return accessRequest;
@@ -213,10 +311,13 @@ export class AccessRequestsService {
       throw new NotFoundException('Demande d\'accès non trouvée');
     }
 
-    // Verify the request belongs to this patient
-    if (request.patient.userId !== patientUserId) {
-      throw new ForbiddenException('Cette demande ne vous appartient pas');
-    }
+    // Verify the request belongs to this patient OR to a dependent they manage.
+    // A parent/tuteur can respond on behalf of a managed minor.
+    await this.assertCanRespondToRequest(
+      patientUserId,
+      request.patient.userId,
+      request.patientId,
+    );
 
     if (request.status !== 'pending') {
       throw new BadRequestException('Cette demande a déjà été traitée');
@@ -313,10 +414,13 @@ export class AccessRequestsService {
       throw new NotFoundException('Demande d\'accès non trouvée');
     }
 
-    // Verify the request belongs to this patient
-    if (request.patient.userId !== patientUserId) {
-      throw new ForbiddenException('Cette demande ne vous appartient pas');
-    }
+    // Verify the request belongs to this patient OR to a dependent they manage.
+    // A parent/tuteur can respond on behalf of a managed minor.
+    await this.assertCanRespondToRequest(
+      patientUserId,
+      request.patient.userId,
+      request.patientId,
+    );
 
     if (request.status !== 'pending') {
       throw new BadRequestException('Cette demande a déjà été traitée');

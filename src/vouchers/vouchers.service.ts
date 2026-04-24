@@ -330,7 +330,16 @@ export class VouchersService {
     // Try multiple slug variants for compatibility with existing seed data.
     let planSlugs: string[];
     if (voucher.type === 'doctor') {
-      planSlugs = ['medecin-premium', 'doctor_premium', 'doctor-premium'];
+      planSlugs = [
+        'doctor',
+        'medecin',
+        'doctor-solo',
+        'doctor_annual',
+        'medecin_annual',
+        'medecin-premium',
+        'doctor_premium',
+        'doctor-premium',
+      ];
     } else if (voucher.type === 'nurse') {
       // Nurses don't have a dedicated plan — use the patient plan (they still get free access)
       planSlugs = ['patient', 'nurse'];
@@ -382,6 +391,10 @@ export class VouchersService {
       });
 
       // 3. Create subscription
+      // For doctor vouchers, autoRenew = true so the daily cron debits the
+      // wallet after the free trial expires. Patients/nurses don't have a
+      // wallet, so they keep autoRenew = false (they'll have to pay manually).
+      const isDoctorVoucher = voucher.type === 'doctor';
       const subscription = await tx.subscription.create({
         data: {
           userId,
@@ -389,7 +402,7 @@ export class VouchersService {
           status: 'active',
           startDate,
           endDate,
-          autoRenew: false, // Promoter subscriptions don't auto-renew
+          autoRenew: isDoctorVoucher,
         },
       });
 

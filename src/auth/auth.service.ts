@@ -97,13 +97,19 @@ export class AuthService {
       });
     }
 
-    // If role is doctor, create Doctor profile (solo doctor, no institution)
+    // If role is doctor, create Doctor profile (solo doctor, no institution).
+    // licenseNumber is optional at registration: not all Cameroonian doctors
+    // have a formal Ordre des Médecins number. Auto-generate a placeholder
+    // (PENDING-...) so super admin can flag accounts that need verification.
     if (dto.role === Role.doctor) {
+      const trimmedLicense = dto.doctorLicenseNumber?.trim();
       await this.prisma.doctor.create({
         data: {
           userId: user.id,
           specialty: dto.doctorSpecialty || 'Médecine générale',
-          licenseNumber: dto.doctorLicenseNumber || `MED-${Date.now()}`,
+          licenseNumber: trimmedLicense && trimmedLicense.length >= 3
+            ? trimmedLicense
+            : `PENDING-${Date.now()}`,
           city: dto.doctorCity,
         },
       });

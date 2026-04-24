@@ -3,6 +3,7 @@ import {
   NotFoundException,
   UnauthorizedException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaClient, Role } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
@@ -14,6 +15,8 @@ import { AppwriteService } from '../common/services/appwrite.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly appwriteService: AppwriteService,
@@ -701,15 +704,54 @@ export class UsersService {
       await this.prisma.nurse.delete({ where: { id: nurse.id } });
     }
 
-    // 5. Institution admin cleanup
+    // 5. Field agent cleanup (agents have FieldVisits + UserOnboardings)
+    const fieldAgent = await this.prisma.fieldAgent.findUnique({ where: { userId: id } });
+    if (fieldAgent) {
+      // Unlink vouchers assigned by this agent (keep the vouchers, just remove the FK)
+      await this.prisma.voucher.updateMany({
+        where: { assignedByAgentId: id },
+        data: { assignedByAgentId: null, onboardingId: null },
+      });
+      await this.prisma.userOnboarding.deleteMany({ where: { agentId: fieldAgent.id } });
+      await this.prisma.fieldVisit.deleteMany({ where: { agentId: fieldAgent.id } });
+      await this.prisma.fieldAgent.delete({ where: { id: fieldAgent.id } });
+    }
+
+    // 6. Institution admin cleanup
     await this.prisma.institution.updateMany({ where: { adminUserId: id }, data: { adminUserId: null } });
 
-    // 6. Subscription/payment cleanup
-    await this.prisma.payment.deleteMany({ where: { userId: id } });
-    await this.prisma.subscription.deleteMany({ where: { userId: id } });
+    // 7. Invitations sent by this user (required FK — blocks deletion)
+    await this.prisma.invitation.deleteMany({ where: { invitedById: id } });
 
-    // 7. Delete user
-    await this.prisma.user.delete({ where: { id } });
+    // 8. Vouchers cleanup
+    // Delete vouchers created by this user (required FK — blocks deletion).
+    // Only delete UNUSED vouchers; used ones keep track with usedById set to null.
+    await this.prisma.voucher.updateMany({
+      where: { usedById: id },
+      data: { usedById: null },
+    });
+    await this.prisma.voucher.updateMany({
+      where: { assignedByAgentId: id },
+      data: { assignedByAgentId: null },
+    });
+    await this.prisma.voucher.deleteMany({ where: { createdById: id } });
+
+    // 9. Subscription/payment cleanup
+    await this.prisma.payment.deleteMany({ where: { userId: id } }).catch(() => {});
+    await this.prisma.subscription.deleteMany({ where: { userId: id } }).catch(() => {});
+
+    // 10. Audit logs
+    await this.prisma.auditLog.deleteMany({ where: { userId: id } }).catch(() => {});
+
+    // 11. Delete user (catches any remaining FK constraint)
+    try {
+      await this.prisma.user.delete({ where: { id } });
+    } catch (err: any) {
+      this.logger.error(`Erreur suppression user ${id}: ${err.message}`);
+      throw new BadRequestException(
+        `Impossible de supprimer l'utilisateur: ${err.meta?.field_name || err.code || 'contrainte référentielle'}`,
+      );
+    }
 
     return { success: true, message: 'Utilisateur supprimé avec succès' };
   }

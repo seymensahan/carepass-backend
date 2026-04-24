@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -257,5 +258,21 @@ export class FieldAgentsController {
   @ApiOperation({ summary: 'Toggle agent active/inactive (super_admin)' })
   toggleStatus(@Param('id') id: string) {
     return this.service.toggleAgentStatus(id);
+  }
+
+  /**
+   * DELETE /field-agents/admin/agents/:id
+   * Permanently delete a field agent and the underlying User account.
+   * Super_admin only. Allows the email to be reused for invitations.
+   */
+  @Delete('admin/agents/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer un agent de terrain (super_admin)' })
+  @ApiResponse({ status: 200, description: 'Agent supprimé' })
+  deleteAgent(@Param('id') id: string) {
+    return this.service.deleteAgent(id);
   }
 }

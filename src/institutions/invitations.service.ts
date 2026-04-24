@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaClient, Role } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '../email/email.service';
 import { randomBytes } from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class InvitationsService {
@@ -10,6 +12,7 @@ export class InvitationsService {
     private readonly prisma: PrismaClient,
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
 
   /**
@@ -227,6 +230,154 @@ export class InvitationsService {
         },
       },
     });
+  }
+
+  /**
+   * Idempotent registration via invitation.
+   * Handles the case where the email already exists (e.g. a previous failed
+   * attempt left an orphan user record): if the existing user's role matches
+   * the invitation role AND the account is not yet linked (no doctor/nurse
+   * profile), we reuse it; otherwise we reject with a clear message.
+   *
+   * This avoids the "Un compte avec cet email existe déjà" dead-end when
+   * users click their invitation link twice.
+   */
+  async registerViaInvitation(
+    token: string,
+    data: { firstName: string; lastName: string; phone: string; password: string },
+  ) {
+    const invitation = await this.validateToken(token);
+    const email = invitation.email;
+    const role = invitation.role as string;
+
+    const passwordHash = await bcrypt.hash(data.password, 12);
+
+    // Check if a user with this email already exists
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+
+    let user;
+    if (existing) {
+      // Only allow re-registration if role matches and the profile is incomplete
+      if (existing.role !== role) {
+        throw new ConflictException(
+          `Un compte avec cet email existe déjà (${existing.role}). Connectez-vous à la place.`,
+        );
+      }
+
+      // Check if the profile is complete (has nurse/doctor record linked)
+      const profileExists =
+        role === 'nurse'
+          ? await this.prisma.nurse.findUnique({ where: { userId: existing.id } })
+          : role === 'doctor'
+            ? await this.prisma.doctor.findUnique({ where: { userId: existing.id } })
+            : null;
+
+      if (profileExists) {
+        // Fully registered — reject
+        throw new ConflictException(
+          'Un compte complet existe déjà pour cet email. Connectez-vous à la place.',
+        );
+      }
+
+      // Orphan user — update with fresh data (likely from a previous failed attempt)
+      user = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+        },
+      });
+    } else {
+      // Fresh registration
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: role as Role,
+          availableRoles: [role as Role],
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone,
+        },
+      });
+    }
+
+    // Accept the invitation (creates the nurse/doctor profile)
+    await this.acceptInvitation(token, user.id);
+
+    // Create a Patient record if missing — required by /users/profile and other
+    // mobile flows. Mirrors the logic from auth.service.ts register().
+    // Without this, the nurse/doctor can login but mobile profile fetch fails,
+    // leaving them in a broken state.
+    if (role === 'nurse' || role === 'doctor') {
+      const existingPatient = await this.prisma.patient.findUnique({
+        where: { userId: user.id },
+      });
+      if (!existingPatient) {
+        const carypassId = await this.generateCarypassId();
+        await this.prisma.patient.create({
+          data: {
+            userId: user.id,
+            carypassId,
+            dateOfBirth: new Date('2000-01-01'),
+          },
+        });
+      }
+    }
+
+    // Reload user to get updated availableRoles
+    const finalUser = await this.prisma.user.findUnique({ where: { id: user.id } });
+    if (!finalUser) throw new NotFoundException('Utilisateur introuvable après création');
+
+    // Generate JWT tokens for auto-login
+    const payload = { sub: finalUser.id, email: finalUser.email, role: finalUser.role };
+    const accessToken = await this.jwtService.signAsync(payload);
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as any,
+    });
+
+    return {
+      message: 'Compte créé avec succès',
+      accessToken,
+      refreshToken,
+      user: {
+        id: finalUser.id,
+        email: finalUser.email,
+        role: finalUser.role,
+        availableRoles: finalUser.availableRoles?.length > 0 ? finalUser.availableRoles : [finalUser.role],
+        firstName: finalUser.firstName,
+        lastName: finalUser.lastName,
+        phone: finalUser.phone,
+      },
+    };
+  }
+
+  /**
+   * Generate a unique CaryPass ID (CP-YYYY-NNNNN).
+   * Mirrors auth.service.ts so invitation flow has parity.
+   */
+  private async generateCarypassId(): Promise<string> {
+    const year = new Date().getFullYear();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const setting = await tx.systemSetting.findUnique({
+        where: { key: 'carypass_id_counter' },
+      });
+      const counter = parseInt(setting?.value || '0') + 1;
+      await tx.systemSetting.upsert({
+        where: { key: 'carypass_id_counter' },
+        update: { value: counter.toString() },
+        create: {
+          key: 'carypass_id_counter',
+          value: counter.toString(),
+          description: 'Compteur CaryPass ID',
+        },
+      });
+      return counter;
+    });
+    return `CP-${year}-${result.toString().padStart(5, '0')}`;
   }
 
   /**

@@ -93,4 +93,26 @@ export class ChildrenController {
     const patientId = await this.getPatientId(user);
     return this.childrenService.getVaccinations(id, patientId);
   }
+
+  /**
+   * POST /children/:id/promote-to-patient
+   *
+   * Promotes a Child record to a full Patient with its own CaryPass.
+   * The parent stays as the legal guardian (canManage=true) so they can
+   * approve access requests on behalf of the dependent.
+   *
+   * After promotion, the parent can show the dependent's CaryPass + QR
+   * to a doctor, who can then request access via the standard flow.
+   *
+   * Idempotent — calling it twice returns the same patient/carypassId.
+   */
+  @Post(':id/promote-to-patient')
+  @Roles('patient')
+  @ApiOperation({
+    summary: 'Promouvoir un enfant en Patient avec son propre CaryPass',
+  })
+  async promoteToPatient(@Param('id') id: string, @CurrentUser() user: any) {
+    const patientId = await this.getPatientId(user);
+    return this.childrenService.promoteToPatient(id, patientId);
+  }
 }
