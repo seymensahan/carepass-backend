@@ -43,20 +43,34 @@ export class CronJobsService {
   /**
    * Wrap a cron handler with automatic logging. Creates a CronJobExecution
    * row before running, updates it on success/failure with duration + metrics.
-   * Use this for every scheduled job so they all show up in the audit.
+   *
+   * Resiliency: cron failures must NEVER crash the server (a single DB hiccup
+   * with serverless databases like Neon would otherwise take the whole process
+   * down). We catch every error here and log it, never re-throw. If the
+   * initial DB write fails (e.g. Neon paused), the job runs anyway without
+   * the audit row — better partial observability than dead server.
    */
   async runWithLogging<T extends CronJobRunResult | void>(
     jobName: string,
     fn: () => Promise<T>,
     trigger: CronJobTrigger = CronJobTrigger.scheduled,
-  ): Promise<T> {
-    const execution = await this.prisma.cronJobExecution.create({
-      data: {
-        jobName,
-        trigger,
-        status: CronJobStatus.running,
-      },
-    });
+  ): Promise<T | undefined> {
+    // Try to create the audit row. If DB is unreachable (Neon cold start,
+    // network blip, etc.) we still want the job to attempt to run — partial
+    // observability beats a dead server.
+    let executionId: string | null = null;
+    try {
+      const execution = await this.prisma.cronJobExecution.create({
+        data: { jobName, trigger, status: CronJobStatus.running },
+      });
+      executionId = execution.id;
+    } catch (logErr) {
+      this.logger.warn(
+        `Cron "${jobName}": couldn't create audit row (continuing anyway): ${
+          logErr instanceof Error ? logErr.message : String(logErr)
+        }`,
+      );
+    }
 
     const startTime = Date.now();
     try {
@@ -64,23 +78,33 @@ export class CronJobsService {
       const durationMs = Date.now() - startTime;
       const summary = (result ?? {}) as CronJobRunResult;
 
-      // Decide status: failed count > 0 → partial_failure, else success
       const status =
         (summary.details?.failed ?? 0) > 0
           ? CronJobStatus.partial_failure
           : CronJobStatus.success;
 
-      await this.prisma.cronJobExecution.update({
-        where: { id: execution.id },
-        data: {
-          finishedAt: new Date(),
-          durationMs,
-          status,
-          itemsProcessed: summary.itemsProcessed ?? 0,
-          itemsAffected: summary.itemsAffected ?? 0,
-          details: summary.details ?? {},
-        },
-      });
+      // Best-effort audit update — never throw.
+      if (executionId) {
+        await this.prisma.cronJobExecution
+          .update({
+            where: { id: executionId },
+            data: {
+              finishedAt: new Date(),
+              durationMs,
+              status,
+              itemsProcessed: summary.itemsProcessed ?? 0,
+              itemsAffected: summary.itemsAffected ?? 0,
+              details: summary.details ?? {},
+            },
+          })
+          .catch((updateErr) => {
+            this.logger.warn(
+              `Cron "${jobName}": couldn't update audit row: ${
+                updateErr instanceof Error ? updateErr.message : String(updateErr)
+              }`,
+            );
+          });
+      }
 
       this.logger.log(
         `Cron "${jobName}" completed in ${durationMs}ms — ${summary.itemsProcessed ?? 0} processed, ${summary.itemsAffected ?? 0} affected`,
@@ -91,18 +115,31 @@ export class CronJobsService {
       const durationMs = Date.now() - startTime;
       const errorMessage = err instanceof Error ? err.message : String(err);
 
-      await this.prisma.cronJobExecution.update({
-        where: { id: execution.id },
-        data: {
-          finishedAt: new Date(),
-          durationMs,
-          status: CronJobStatus.failed,
-          errorMessage,
-        },
-      });
+      // Best-effort audit update — never throw.
+      if (executionId) {
+        await this.prisma.cronJobExecution
+          .update({
+            where: { id: executionId },
+            data: {
+              finishedAt: new Date(),
+              durationMs,
+              status: CronJobStatus.failed,
+              errorMessage,
+            },
+          })
+          .catch(() => {
+            // Silent — already in a failure path.
+          });
+      }
 
-      this.logger.error(`Cron "${jobName}" failed after ${durationMs}ms: ${errorMessage}`);
-      throw err;
+      this.logger.error(
+        `Cron "${jobName}" failed after ${durationMs}ms: ${errorMessage}`,
+      );
+
+      // Critical: do NOT re-throw. Throwing here propagates to the @Cron
+      // handler which crashes the entire NestJS process. Returning undefined
+      // is fine — callers (cron handlers) don't use the return value.
+      return undefined;
     }
   }
 

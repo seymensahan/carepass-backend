@@ -124,6 +124,17 @@ export class EventsGateway
     this.server.to(`user:${userId}`).emit('notification', notification);
   }
 
+  /**
+   * Emit a custom event to a list of users.
+   * Used for example by the lab-orders flow to push new orders to lab users
+   * in real-time so they don't have to refetch.
+   */
+  emitToUsers(userIds: string[], event: string, payload: any) {
+    if (!userIds.length) return;
+    const rooms = userIds.map((id) => `user:${id}`);
+    this.server.to(rooms).emit(event, payload);
+  }
+
   // Send message to a specific user
   sendMessageToUser(userId: string, message: any) {
     this.server.to(`user:${userId}`).emit('new_message', message);

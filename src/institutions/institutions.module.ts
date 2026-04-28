@@ -4,7 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { InstitutionsController } from './institutions.controller';
 import { InstitutionsService } from './institutions.service';
 import { InvitationsService } from './invitations.service';
-import { AppwriteService } from '../common/services/appwrite.service';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -23,7 +23,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     }),
   ],
   controllers: [InstitutionsController],
-  providers: [InstitutionsService, InvitationsService, AppwriteService],
+  providers: [InstitutionsService, InvitationsService, CloudinaryService],
   exports: [InstitutionsService, InvitationsService],
 })
 export class InstitutionsModule {}

@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { AppwriteService } from '../common/services/appwrite.service';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 
 @Injectable()
 export class UsersService {
@@ -19,7 +19,7 @@ export class UsersService {
 
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly appwriteService: AppwriteService,
+    private readonly storageService: CloudinaryService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
@@ -125,44 +125,36 @@ export class UsersService {
       }
     }
 
-    // Add subscription status for all subscribable roles
+    // Add subscription status for all subscribable roles.
+    //
+    // Source of truth = the latest subscription (any status) ordered by endDate.
+    // We block ONLY when its endDate is in the past — never on `status` alone.
+    // Why: a cancelled-but-still-paid subscription is valid until its endDate,
+    // and a stale `expired` row with endDate in the future (cron raced with a
+    // new active row, or status update hung) was wrongly blocking doctors.
     if (['institution_admin', 'patient', 'doctor', 'nurse'].includes(user.role)) {
-      const subscription = await this.prisma.subscription.findFirst({
-        where: { userId, status: 'active' },
+      const latest = await this.prisma.subscription.findFirst({
+        where: { userId },
         include: { plan: { select: { name: true } } },
         orderBy: { endDate: 'desc' },
       });
-      if (subscription) {
-        const isExpired = new Date(subscription.endDate) < new Date();
+
+      if (latest) {
+        const isExpired = new Date(latest.endDate) < new Date();
         profile.subscriptionStatus = {
           isExpired,
-          endDate: subscription.endDate,
-          planName: subscription.plan?.name || null,
+          endDate: latest.endDate,
+          planName: latest.plan?.name || null,
         };
-      } else {
-        // Check if user has ANY subscription (expired/cancelled)
-        const anySubscription = await this.prisma.subscription.findFirst({
-          where: { userId },
-          include: { plan: { select: { name: true } } },
-          orderBy: { endDate: 'desc' },
-        });
-        if (anySubscription) {
-          // Had a subscription that expired
-          profile.subscriptionStatus = {
-            isExpired: true,
-            endDate: anySubscription.endDate,
-            planName: anySubscription.plan?.name || null,
-          };
-        } else if (user.role === 'institution_admin') {
-          // Institution admin without any subscription
-          profile.subscriptionStatus = {
-            isExpired: true,
-            endDate: null,
-            planName: null,
-          };
-        }
-        // For patient/doctor/nurse without subscription: don't block (they might not have subscribed yet)
+      } else if (user.role === 'institution_admin') {
+        // Institution admin without any subscription must subscribe to use the platform
+        profile.subscriptionStatus = {
+          isExpired: true,
+          endDate: null,
+          planName: null,
+        };
       }
+      // For patient/doctor/nurse without subscription: don't block (they might not have subscribed yet)
     }
 
     return profile;
@@ -285,7 +277,7 @@ export class UsersService {
     }
 
     // Upload to Appwrite
-    const { url: avatarUrl } = await this.appwriteService.uploadFile(file, 'avatars');
+    const { url: avatarUrl } = await this.storageService.uploadFile(file, 'avatars');
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },

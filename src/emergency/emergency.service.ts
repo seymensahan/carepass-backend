@@ -145,6 +145,12 @@ export class EmergencyService {
     return {
       success: true,
       data: {
+        // Expose the carypassId so authenticated apps (doctor scanning the
+        // patient's emergency QR) can resolve token → carypassId and then
+        // request access via the standard flow. The carypassId alone grants
+        // no privileges — same level of sensitivity as the data already
+        // returned (allergies, conditions, contacts).
+        carypassId: patient.carypassId,
         firstName: patient.user.firstName,
         lastName: patient.user.lastName,
         dateOfBirth: patient.dateOfBirth,

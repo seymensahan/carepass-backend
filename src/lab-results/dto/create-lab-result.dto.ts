@@ -79,6 +79,11 @@ export class CreateLabResultDto {
   @IsString()
   consultationId?: string;
 
+  @ApiPropertyOptional({ description: 'ID de l\'ordre de laboratoire associé (sera marqué comme complété)' })
+  @IsOptional()
+  @IsString()
+  labOrderId?: string;
+
   @ApiPropertyOptional({ description: 'Notes supplementaires' })
   @IsOptional()
   @IsString()

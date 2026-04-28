@@ -121,6 +121,22 @@ export class PatientsController {
   }
 
   /**
+   * GET /patients/by-emergency-token/:token
+   * Resolve a patient by their public emergency QR token. Used by doctors who
+   * scanned the patient's QR (which encodes the token, not the carypassId).
+   * IMPORTANT: route declared BEFORE @Get(':id') so "by-emergency-token" is
+   * not interpreted as an id.
+   */
+  @Get('by-emergency-token/:token')
+  @ApiOperation({ summary: 'Rechercher un patient par token d\'urgence' })
+  @ApiParam({ name: 'token', description: 'Token d\'urgence (32-char hex)' })
+  @ApiResponse({ status: 200, description: 'Patient trouve' })
+  @ApiResponse({ status: 404, description: 'Patient non trouve' })
+  async findByEmergencyToken(@Param('token') token: string) {
+    return this.patientsService.findByEmergencyToken(token);
+  }
+
+  /**
    * GET /patients/:id
    * Get a single patient by ID.
    */

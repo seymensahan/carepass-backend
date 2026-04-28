@@ -16,6 +16,7 @@ import { DoctorsModule } from './doctors/doctors.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 import { LabResultsModule } from './lab-results/lab-results.module';
+import { LabOrdersModule } from './lab-orders/lab-orders.module';
 import { VaccinationsModule } from './vaccinations/vaccinations.module';
 import { AllergiesModule } from './allergies/allergies.module';
 import { MedicalConditionsModule } from './medical-conditions/medical-conditions.module';
@@ -120,6 +121,7 @@ import { CronJobsModule } from './cron-jobs/cron-jobs.module';
     ConsultationsModule,
     PrescriptionsModule,
     LabResultsModule,
+    LabOrdersModule,
     VaccinationsModule,
     AllergiesModule,
     MedicalConditionsModule,

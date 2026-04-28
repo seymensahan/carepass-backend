@@ -7,7 +7,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { CreateInstitutionDto } from './dto/create-institution.dto';
 import { UpdateInstitutionDto } from './dto/update-institution.dto';
 import { InstitutionFilterDto } from './dto/institution-filter.dto';
-import { AppwriteService } from '../common/services/appwrite.service';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -15,7 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 export class InstitutionsService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly appwriteService: AppwriteService,
+    private readonly storageService: CloudinaryService,
     private readonly emailService: EmailService,
     private readonly notificationsService: NotificationsService,
   ) {}
@@ -463,7 +463,7 @@ export class InstitutionsService {
 
     const documents = [];
     for (const file of files) {
-      const { fileId, url } = await this.appwriteService.uploadFile(file, 'institution-documents');
+      const { fileId, url } = await this.storageService.uploadFile(file, 'institution-documents');
       const doc = await this.prisma.institutionDocument.create({
         data: {
           institutionId: id,

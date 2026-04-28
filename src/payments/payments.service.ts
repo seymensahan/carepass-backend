@@ -386,7 +386,7 @@ export class PaymentsService {
 
           // Create institution if role is institution_admin
           if (role === 'institution_admin' && regData.institutionName) {
-            await tx.institution.create({
+            const institution = await tx.institution.create({
               data: {
                 name: regData.institutionName, type: regData.institutionType || 'clinic',
                 address: regData.institutionAddress, city: regData.institutionCity,
@@ -394,6 +394,26 @@ export class PaymentsService {
                 adminUserId: user.id, isVerified: false,
               },
             });
+
+            // Pre-uploaded verification documents (autorisation, RCCM, NIU)
+            // The browser uploaded them straight to Cloudinary BEFORE payment
+            // — we only get the URLs here. Each entry is shaped:
+            // { name, fileUrl, fileSize?, mimeType?, type? }
+            const docs = Array.isArray(regData.documents) ? regData.documents : [];
+            if (docs.length > 0) {
+              await tx.institutionDocument.createMany({
+                data: docs
+                  .filter((d: any) => d?.fileUrl && d?.name)
+                  .map((d: any) => ({
+                    institutionId: institution.id,
+                    name: d.name,
+                    type: d.type || 'autre',
+                    fileUrl: d.fileUrl,
+                    fileSize: typeof d.fileSize === 'number' ? d.fileSize : null,
+                    mimeType: d.mimeType || null,
+                  })),
+              });
+            }
           }
 
           const startDate = new Date();

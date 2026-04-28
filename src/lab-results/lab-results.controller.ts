@@ -72,8 +72,19 @@ export class LabResultsController {
 
   @Patch(':id/validate')
   @Roles('doctor')
-  @ApiOperation({ summary: 'Valider un resultat de laboratoire' })
+  @ApiOperation({ summary: 'Valider un resultat de laboratoire (sans diagnostic)' })
   validate(@Param('id') id: string, @CurrentUser() user: any) {
     return this.labResultsService.validate(id, user.id);
+  }
+
+  @Patch(':id/diagnose')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Donner son diagnostic sur un résultat (médecin)' })
+  diagnose(
+    @Param('id') id: string,
+    @Body() body: { diagnosis?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.labResultsService.diagnose(id, user.id, body.diagnosis);
   }
 }

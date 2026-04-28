@@ -104,6 +104,13 @@ export class AccessGrantsController {
   })
   async triggerCleanup() {
     const result = await this.cleanupService.triggerManually();
+    if (!result) {
+      return {
+        success: false,
+        message: 'Le cron a échoué (voir les logs serveur).',
+        data: null,
+      };
+    }
     return {
       success: true,
       message: `${result.itemsAffected} accès expiré(s) révoqué(s)`,

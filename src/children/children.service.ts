@@ -35,13 +35,36 @@ export class ChildrenService {
   /**
    * Get a single child by ID.
    * Verifies that the child belongs to the given patient.
-   * Includes vaccinations.
+   * If the child has been promoted to a full Patient, also returns all medical
+   * data attached to that Patient (consultations, allergies, conditions,
+   * medications, lab results, emergency contacts) so the parent's UI can
+   * display the same sections it shows for itself.
    */
   async findOne(id: string, patientId: string) {
     const child = await this.prisma.child.findUnique({
       where: { id },
       include: {
-        vaccinations: true,
+        vaccinations: { orderBy: { date: 'desc' } },
+        promotedPatient: {
+          include: {
+            user: { select: { firstName: true, lastName: true, email: true } },
+            allergies: true,
+            medicalConditions: true,
+            emergencyContacts: true,
+            consultations: {
+              orderBy: { date: 'desc' },
+              include: {
+                doctor: {
+                  include: { user: { select: { firstName: true, lastName: true } } },
+                },
+                prescriptions: true,
+              },
+            },
+            prescriptions: { orderBy: { createdAt: 'desc' } },
+            labResults: { orderBy: { createdAt: 'desc' } },
+            vaccinations: { orderBy: { date: 'desc' } },
+          },
+        },
       },
     });
 
@@ -53,7 +76,21 @@ export class ChildrenService {
       throw new ForbiddenException('Accès refusé : cet enfant ne vous appartient pas');
     }
 
-    return child;
+    // Merge vaccinations from both Child.vaccinations (legacy) and
+    // promotedPatient.vaccinations (post-promotion). After promotion the
+    // service migrates them, so usually only one of the two has rows.
+    const allVaccinations = [
+      ...(child.promotedPatient?.vaccinations ?? []),
+      ...child.vaccinations,
+    ];
+
+    return {
+      ...child,
+      vaccinations: allVaccinations,
+      // Convenience flags for the mobile UI
+      isPromoted: !!child.promotedPatient,
+      carypassId: child.promotedPatient?.carypassId ?? null,
+    };
   }
 
   /**
@@ -182,21 +219,35 @@ export class ChildrenService {
   async promoteToPatient(childId: string, parentPatientId: string) {
     const child = await this.prisma.child.findUnique({
       where: { id: childId },
+      include: { promotedPatient: true },
     });
     if (!child) throw new NotFoundException('Enfant non trouvé');
     if (child.parentId !== parentPatientId) {
       throw new ForbiddenException('Accès refusé : cet enfant ne vous appartient pas');
     }
 
-    // Idempotency check: do we already have a Patient promoted from this child?
-    // We detect by looking for an existing LegalGuardian whose dependent's user
-    // has the synthetic email pattern for this child.
+    // Idempotency: prefer the explicit link, fall back to synthetic-email lookup
+    // (legacy children promoted before promotedPatientId existed).
+    if (child.promotedPatient) {
+      return {
+        success: true,
+        alreadyPromoted: true,
+        carypassId: child.promotedPatient.carypassId,
+        emergencyToken: child.promotedPatient.emergencyToken,
+        patientId: child.promotedPatient.id,
+      };
+    }
     const syntheticEmail = `dep-${childId}@carypass.local`;
     const existingUser = await this.prisma.user.findUnique({
       where: { email: syntheticEmail },
       include: { patient: true },
     });
     if (existingUser?.patient) {
+      // Backfill the link on the legacy row.
+      await this.prisma.child.update({
+        where: { id: childId },
+        data: { promotedPatientId: existingUser.patient.id },
+      });
       return {
         success: true,
         alreadyPromoted: true,
@@ -273,6 +324,13 @@ export class ChildrenService {
       await tx.vaccination.updateMany({
         where: { childId: child.id },
         data: { patientId: patient.id, childId: null },
+      });
+
+      // Link the Child row to the new Patient so the child detail page can
+      // surface the promoted patient's medical data.
+      await tx.child.update({
+        where: { id: child.id },
+        data: { promotedPatientId: patient.id },
       });
 
       return { patient, carypassId, emergencyToken };

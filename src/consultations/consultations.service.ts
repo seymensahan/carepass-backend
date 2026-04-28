@@ -9,13 +9,44 @@ import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { ConsultationFilterDto } from './dto/consultation-filter.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EventsGateway } from '../gateway/events.gateway';
 
 @Injectable()
 export class ConsultationsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly notificationsService: NotificationsService,
+    private readonly eventsGateway: EventsGateway,
   ) {}
+
+  /**
+   * Find every user that belongs to a lab institution (admin + any doctor/nurse linked there).
+   * Used to push real-time `lab-order:new` events to labs after order creation.
+   * If `labInstitutionId` is null, returns admin user IDs of every lab institution
+   * (marketplace mode → broadcast to every lab in the system).
+   */
+  private async resolveLabUserIds(labInstitutionId: string | null): Promise<string[]> {
+    const where: Prisma.InstitutionWhereInput = labInstitutionId
+      ? { id: labInstitutionId, type: 'laboratory' }
+      : { type: 'laboratory' };
+
+    const institutions = await this.prisma.institution.findMany({
+      where,
+      select: {
+        adminUserId: true,
+        doctors: { select: { userId: true } },
+        nurses: { select: { userId: true } },
+      },
+    });
+
+    const userIds = new Set<string>();
+    for (const inst of institutions) {
+      if (inst.adminUserId) userIds.add(inst.adminUserId);
+      for (const d of inst.doctors) userIds.add(d.userId);
+      for (const n of inst.nurses) userIds.add(n.userId);
+    }
+    return [...userIds];
+  }
 
   /**
    * List consultations with role-based filtering and pagination.
@@ -245,6 +276,28 @@ export class ConsultationsService {
         });
       }
 
+      // Create lab orders if labOrders array provided (one per requested exam).
+      // The optional labInstitutionId routes the orders to a specific lab.
+      // Without it, orders are visible to all labs (marketplace mode).
+      if (dto.labOrders && dto.labOrders.length > 0) {
+        const orders = dto.labOrders
+          .map((examType) => examType?.trim())
+          .filter((examType): examType is string => !!examType);
+
+        if (orders.length > 0) {
+          await tx.labOrder.createMany({
+            data: orders.map((examType) => ({
+              patientId: dto.patientId,
+              doctorId,
+              consultationId: consult.id,
+              examType,
+              status: 'pending' as const,
+              labInstitutionId: dto.labInstitutionId || null,
+            })),
+          });
+        }
+      }
+
       // Return full consultation with relations
       return tx.consultation.findUnique({
         where: { id: consult.id },
@@ -282,6 +335,22 @@ export class ConsultationsService {
           link: '/consultations/' + consultation.id,
         },
       ).catch(() => {});
+    }
+
+    // Push real-time `lab-order:new` event to the targeted lab(s) so their
+    // dashboard refreshes without polling. Fire-and-forget: any failure here
+    // must not break consultation creation (the orders are already in DB).
+    if (dto.labOrders && dto.labOrders.length > 0) {
+      this.resolveLabUserIds(dto.labInstitutionId || null)
+        .then((userIds) => {
+          this.eventsGateway.emitToUsers(userIds, 'lab-order:new', {
+            consultationId: consultation?.id,
+            patientId: dto.patientId,
+            examTypes: dto.labOrders,
+            labInstitutionId: dto.labInstitutionId || null,
+          });
+        })
+        .catch(() => {});
     }
 
     return { success: true, data: consultation };

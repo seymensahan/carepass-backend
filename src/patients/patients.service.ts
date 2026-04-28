@@ -173,6 +173,39 @@ export class PatientsService {
     return patient;
   }
 
+  /**
+   * Find a patient by their public emergency token (the long hex string used
+   * in the emergency QR code URL). Used by doctors/nurses who scanned a
+   * patient's emergency QR and want to access the full record (subject to
+   * the standard access-grant flow).
+   */
+  async findByEmergencyToken(token: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { emergencyToken: token },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
+        emergencyContacts: true,
+        children: true,
+      },
+    });
+
+    if (!patient) {
+      throw new NotFoundException("Patient non trouve avec ce token d'urgence");
+    }
+
+    return patient;
+  }
+
   // ---------------------------------------------------------------------------
   // CREATE
   // ---------------------------------------------------------------------------

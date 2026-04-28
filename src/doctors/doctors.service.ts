@@ -313,6 +313,22 @@ export class DoctorsService {
   // ---------------------------------------------------------------------------
   // GET PATIENTS (via AccessGrants)
   // ---------------------------------------------------------------------------
+  /**
+   * Resolve the calling user → their Doctor.id, then list their patients.
+   * Used by GET /doctors/me/patients to avoid the client having to fetch
+   * its own profile first.
+   */
+  async getPatientsByUserId(userId: string, query: { page?: number; limit?: number }) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!doctor) {
+      throw new NotFoundException('Profil medecin non trouve');
+    }
+    return this.getPatients(doctor.id, query);
+  }
+
   async getPatients(doctorId: string, query: { page?: number; limit?: number }) {
     const page = query.page || 1;
     const limit = query.limit || 20;

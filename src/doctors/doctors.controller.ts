@@ -113,6 +113,27 @@ export class DoctorsController {
   }
 
   /**
+   * GET /doctors/me/patients
+   * List patients of the currently logged-in doctor.
+   * Saves the mobile client a /users/profile round-trip just to learn its
+   * own doctorId — the previous chained-call pattern caused empty lists on
+   * race conditions and forced users to refresh several times.
+   *
+   * NOTE: must be declared BEFORE `:id/patients` so NestJS doesn't match
+   * the literal `me` against the `:id` param.
+   */
+  @Get('me/patients')
+  @Roles('doctor')
+  @ApiOperation({ summary: 'Lister les patients du medecin connecte' })
+  @ApiResponse({ status: 200, description: 'Liste des patients du medecin' })
+  async getMyPatients(
+    @CurrentUser() user: any,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.doctorsService.getPatientsByUserId(user.id, query);
+  }
+
+  /**
    * GET /doctors/:id/patients
    * List patients assigned to a doctor via AccessGrants.
    */

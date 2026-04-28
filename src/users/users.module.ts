@@ -3,7 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { AppwriteService } from '../common/services/appwrite.service';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 
 @Module({
   imports: [
@@ -17,7 +17,7 @@ import { AppwriteService } from '../common/services/appwrite.service';
     }),
   ],
   controllers: [UsersController],
-  providers: [UsersService, AppwriteService],
+  providers: [UsersService, CloudinaryService],
   exports: [UsersService],
 })
 export class UsersModule {}

@@ -95,7 +95,15 @@ export class WalletController {
   @ApiResponse({ status: 200, description: 'Renouvellement traité' })
   async triggerRenewal() {
     // Use the logged path so the manual run shows up in the cron history.
+    // runWithLogging returns undefined if the cron crashed (DB unreachable etc.)
     const result = await this.subscriptionRenewalService.triggerManually();
+    if (!result) {
+      return {
+        success: false,
+        message: 'Le cron a échoué (voir les logs serveur).',
+        data: null,
+      };
+    }
     return {
       success: true,
       message: `${result.renewed} abonnement(s) renouvelé(s), ${result.failed} échec(s) sur ${result.processed} traité(s)`,
@@ -117,6 +125,13 @@ export class WalletController {
   })
   async forceRenewUser(@Param('userId') userId: string) {
     const result = await this.subscriptionRenewalService.forceRenewSubscription(userId);
+    if (!result) {
+      return {
+        success: false,
+        message: 'Le cron a échoué (voir les logs serveur).',
+        data: null,
+      };
+    }
     const detail = result.details as Record<string, any> | undefined;
     if (detail?.error) {
       return { success: false, message: detail.error, data: result };

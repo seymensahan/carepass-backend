@@ -156,4 +156,13 @@ export class CreateConsultationDto {
   @IsArray()
   @IsString({ each: true })
   labOrders?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'ID de l\'institution laboratoire ciblée pour les ordres ci-dessus. ' +
+      'Si omis, les ordres sont ouverts à tous les labos (mode marketplace).',
+  })
+  @IsOptional()
+  @IsString()
+  labInstitutionId?: string;
 }

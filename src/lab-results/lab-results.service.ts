@@ -2,21 +2,24 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { CreateLabResultDto } from './dto/create-lab-result.dto';
 import { UpdateLabResultDto } from './dto/update-lab-result.dto';
 import { LabResultFilterDto } from './dto/lab-result-filter.dto';
 import { EmailService } from '../email/email.service';
-import { AppwriteService } from '../common/services/appwrite.service';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class LabResultsService {
+  private readonly logger = new Logger(LabResultsService.name);
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly emailService: EmailService,
-    private readonly appwriteService: AppwriteService,
+    private readonly storageService: CloudinaryService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -88,6 +91,13 @@ export class LabResultsService {
           items: true,
           patient: { include: { user: true } },
           uploadedBy: true,
+          institution: { select: { name: true, type: true } },
+          diagnosedBy: { include: { user: { select: { firstName: true, lastName: true } } } },
+          labOrder: {
+            include: {
+              doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+            },
+          },
         },
       }),
       this.prisma.labResult.count({ where }),
@@ -112,6 +122,12 @@ export class LabResultsService {
         patient: { include: { user: true } },
         uploadedBy: true,
         institution: true,
+        diagnosedBy: { include: { user: { select: { firstName: true, lastName: true } } } },
+        labOrder: {
+          include: {
+            doctor: { include: { user: { select: { firstName: true, lastName: true } } } },
+          },
+        },
         consultation: {
           select: {
             id: true,
@@ -134,15 +150,39 @@ export class LabResultsService {
   async create(uploadedById: string, dto: CreateLabResultDto, file?: Express.Multer.File) {
     const { items, ...data } = dto;
 
+    this.logger.log(
+      `Creating lab result — patientId=${data.patientId}, labOrderId=${(data as any).labOrderId || 'none'}, hasFile=${!!file}`,
+    );
+
     // Upload file to Appwrite if provided, otherwise use fileUrl from DTO
     let resolvedFileUrl = data.fileUrl || '';
     let fileSize: number | undefined;
     let mimeType: string | undefined;
     if (file) {
-      const { url } = await this.appwriteService.uploadFile(file, 'lab-results');
+      const { url } = await this.storageService.uploadFile(file, 'lab-results');
       resolvedFileUrl = url;
       fileSize = file.size;
       mimeType = file.mimetype;
+    }
+
+    // If a labOrderId is provided, validate and use its data to fill missing fields
+    const labOrderId = (data as any).labOrderId as string | undefined;
+    let labOrder: any = null;
+    if (labOrderId) {
+      labOrder = await this.prisma.labOrder.findUnique({
+        where: { id: labOrderId },
+        include: {
+          doctor: {
+            include: { user: { select: { id: true, firstName: true, lastName: true } } },
+          },
+        },
+      });
+      if (!labOrder) {
+        throw new NotFoundException('Ordre de laboratoire non trouvé');
+      }
+      if (labOrder.status === 'completed') {
+        throw new ForbiddenException('Cet ordre a déjà été complété');
+      }
     }
 
     const labResult = await this.prisma.labResult.create({
@@ -156,7 +196,8 @@ export class LabResultsService {
         mimeType,
         uploadedById,
         institutionId: data.institutionId,
-        consultationId: (data as any).consultationId || undefined,
+        consultationId: (data as any).consultationId || labOrder?.consultationId || undefined,
+        labOrderId: labOrderId || undefined,
         notes: data.notes,
         items: items && items.length > 0
           ? {
@@ -177,13 +218,78 @@ export class LabResultsService {
       },
     });
 
-    // Send email to patient when lab result is uploaded (non-blocking)
+    // Mark lab order as completed if linked
+    if (labOrderId) {
+      try {
+        await this.prisma.labOrder.update({
+          where: { id: labOrderId },
+          data: {
+            status: 'completed',
+            completedAt: new Date(),
+            pickedUpById: labOrder?.pickedUpById || uploadedById,
+            pickedUpAt: labOrder?.pickedUpAt || new Date(),
+          },
+        });
+        this.logger.log(`LabOrder ${labOrderId} marked as completed`);
+      } catch (err) {
+        this.logger.error(
+          `Failed to mark LabOrder ${labOrderId} as completed`,
+          err instanceof Error ? err.stack : String(err),
+        );
+      }
+    }
+
     const patientUser = (labResult as any).patient?.user;
+    const patientName = patientUser
+      ? `${patientUser.firstName} ${patientUser.lastName}`
+      : 'votre patient';
+
+    // Send email to patient (non-blocking)
     if (patientUser?.email) {
       this.emailService.sendLabResultReadyEmail(
         patientUser.email,
         patientUser.firstName,
         labResult.title,
+      ).catch(() => {});
+    }
+
+    // In-app notification for the patient
+    if (patientUser?.id) {
+      this.notificationsService.create(
+        patientUser.id,
+        {
+          type: 'success',
+          title: 'Résultat d\'analyse disponible',
+          message: `Votre résultat "${labResult.title}" est maintenant disponible`,
+          link: `/records/lab-results/${labResult.id}`,
+        },
+      ).catch(() => {});
+    }
+
+    // In-app notification for the prescribing doctor (via labOrder OR via consultation)
+    let doctorUserId: string | undefined;
+    if (labOrder?.doctor?.user?.id) {
+      doctorUserId = labOrder.doctor.user.id;
+    } else if (labResult.consultationId) {
+      const consultation = await this.prisma.consultation.findUnique({
+        where: { id: labResult.consultationId },
+        include: { doctor: { include: { user: { select: { id: true } } } } },
+      });
+      doctorUserId = consultation?.doctor?.user?.id;
+    }
+
+    if (doctorUserId) {
+      this.notificationsService.create(
+        doctorUserId,
+        {
+          type: 'info',
+          title: 'Résultat d\'analyse reçu',
+          message: `Le résultat "${labResult.title}" pour ${patientName} a été uploadé par le laboratoire`,
+          // Send the doctor straight to the lab result so they can write
+          // their diagnosis. The page itself shows context + a link back to
+          // the consultation when needed.
+          link: `/records/lab-results/${labResult.id}`,
+        },
       ).catch(() => {});
     }
 
@@ -271,6 +377,23 @@ export class LabResultsService {
   }
 
   async validate(id: string, doctorUserId: string) {
+    return this.diagnose(id, doctorUserId, undefined);
+  }
+
+  /**
+   * Doctor provides their diagnosis on a lab result.
+   * - Sets status to 'validated'
+   * - Records diagnosis text + diagnosing doctor + timestamp
+   * - Notifies the patient with the diagnosis available
+   */
+  async diagnose(id: string, doctorUserId: string, diagnosis?: string) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { userId: doctorUserId },
+    });
+    if (!doctor) {
+      throw new ForbiddenException('Profil médecin requis');
+    }
+
     const existing = await this.prisma.labResult.findUnique({
       where: { id },
       include: { patient: true },
@@ -282,22 +405,33 @@ export class LabResultsService {
 
     const labResult = await this.prisma.labResult.update({
       where: { id },
-      data: { status: 'validated' },
+      data: {
+        status: 'validated',
+        doctorDiagnosis: diagnosis ?? existing.doctorDiagnosis,
+        diagnosedAt: new Date(),
+        diagnosedById: doctor.id,
+      },
       include: {
         items: true,
         patient: { include: { user: true } },
         uploadedBy: true,
+        diagnosedBy: { include: { user: { select: { firstName: true, lastName: true } } } },
       },
     });
 
-    // Create notification for the patient (with real-time WebSocket delivery)
+    // Notify the patient
     if (existing.patient) {
+      const doctorUser = await this.prisma.user.findUnique({ where: { id: doctorUserId } });
+      const doctorName = doctorUser
+        ? `Dr. ${doctorUser.firstName} ${doctorUser.lastName}`
+        : 'Votre médecin';
       await this.notificationsService.create(
         existing.patient.userId,
         {
-          title: 'Resultat validé',
-          message: `Votre résultat "${existing.title}" a été validé par un médecin.`,
-          type: 'info',
+          title: 'Diagnostic disponible',
+          message: `${doctorName} a analysé votre résultat "${existing.title}"${diagnosis ? '. Cliquez pour voir le diagnostic.' : ''}`,
+          type: 'success',
+          link: `/records/lab-results/${id}`,
         },
       ).catch(() => {});
     }
