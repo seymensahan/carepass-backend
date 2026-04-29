@@ -471,8 +471,15 @@ export class InstitutionsService {
     const days = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 365;
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
+    // Include doctors via DoctorInstitution join too (multi-institution)
+    const doctorWhere = {
+      OR: [
+        { institutionId: id },
+        { institutions: { some: { institutionId: id, isActive: true } } },
+      ],
+    };
     const doctorIds = (await this.prisma.doctor.findMany({
-      where: { institutionId: id },
+      where: doctorWhere,
       select: { id: true },
     })).map(d => d.id);
 
@@ -547,11 +554,16 @@ export class InstitutionsService {
       });
     }
 
-    // Top doctors
+    // Top doctors — include all affiliates (primary and secondary)
     const doctors = await this.prisma.doctor.findMany({
-      where: { institutionId: id },
+      where: doctorWhere,
       include: {
         user: { select: { firstName: true, lastName: true } },
+        institutions: {
+          where: { institutionId: id },
+          select: { specialty: true },
+          take: 1,
+        },
         _count: { select: { consultations: true } },
       },
     });
@@ -564,9 +576,12 @@ export class InstitutionsService {
     }
 
     const topDoctors = doctors
-      .map(d => ({
+      .map((d: any) => ({
         name: `Dr. ${d.user.firstName} ${d.user.lastName}`,
-        specialty: d.specialty || 'Généraliste',
+        specialty:
+          (Array.isArray(d.institutions) && d.institutions[0]?.specialty) ||
+          d.specialty ||
+          'Généraliste',
         consultations: d._count.consultations,
         patients: patientsByDoctor[d.id]?.size || 0,
         rating: 0,

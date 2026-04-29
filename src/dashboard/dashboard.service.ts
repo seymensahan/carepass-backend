@@ -200,9 +200,18 @@ export class DashboardService {
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Get all doctor IDs in this institution
+    // Use BOTH the legacy Doctor.institutionId pointer AND the DoctorInstitution
+    // join table so multi-institution doctors (consultants/visiting) are
+    // counted in this hospital's metrics.
+    const doctorWhere = {
+      OR: [
+        { institutionId: institution.id },
+        { institutions: { some: { institutionId: institution.id, isActive: true } } },
+      ],
+    };
+
     const institutionDoctors = await this.prisma.doctor.findMany({
-      where: { institutionId: institution.id },
+      where: doctorWhere,
       select: { id: true },
     });
     const doctorIds = institutionDoctors.map((d) => d.id);
@@ -214,7 +223,7 @@ export class DashboardService {
       consultationsThisMonth,
       pendingVerifications,
     ] = await Promise.all([
-      this.prisma.doctor.count({ where: { institutionId: institution.id } }),
+      this.prisma.doctor.count({ where: doctorWhere }),
       this.prisma.consultation.findMany({
         where: { doctorId: { in: doctorIds } },
         select: { patientId: true },
@@ -233,7 +242,7 @@ export class DashboardService {
         },
       }),
       this.prisma.doctor.count({
-        where: { institutionId: institution.id, isVerified: false },
+        where: { ...doctorWhere, isVerified: false },
       }),
     ]);
 
