@@ -233,7 +233,7 @@ export class InstitutionsService {
         { institutionId: id },
         { institutions: { some: { institutionId: id, isActive: true } } },
       ],
-    } as const;
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.doctor.findMany({
@@ -389,11 +389,7 @@ export class InstitutionsService {
         where: { doctorId },
         take: 8,
         orderBy: { date: 'desc' },
-        select: {
-          id: true,
-          date: true,
-          chiefComplaint: true,
-          diagnosis: true,
+        include: {
           patient: {
             select: { user: { select: { firstName: true, lastName: true } } },
           },
@@ -436,11 +432,11 @@ export class InstitutionsService {
         hospitalisationsActive,
         labOrdersThisMonth,
       },
-      recentActivity: recentConsultations.map((c) => ({
+      recentActivity: recentConsultations.map((c: any) => ({
         id: c.id,
         type: 'consultation' as const,
         timestamp: c.date,
-        description: `Consultation — ${c.patient.user.firstName} ${c.patient.user.lastName}${c.chiefComplaint ? ` · ${c.chiefComplaint}` : ''}`,
+        description: `Consultation — ${c.patient.user.firstName} ${c.patient.user.lastName}${c.motif ? ` · ${c.motif}` : ''}`,
       })),
     };
   }

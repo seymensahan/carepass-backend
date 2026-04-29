@@ -79,7 +79,7 @@ async function main() {
           lastName: target.forceLastName,
           role: 'doctor',
           availableRoles: ['doctor'],
-          isVerified: true,
+          emailVerifiedAt: new Date(),
         },
       });
       console.log(`   ✓ User created from scratch with role=doctor`);
@@ -102,7 +102,7 @@ async function main() {
           // as one. The other roles stay reachable through availableRoles.
           role: 'doctor',
           availableRoles: [...availableRoles] as any,
-          isVerified: true,
+          emailVerifiedAt: new Date(),
         },
       });
       console.log(`   ✓ User updated: name forced to "${target.forceFirstName} ${target.forceLastName}", role=doctor`);

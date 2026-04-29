@@ -15,13 +15,13 @@ async function main() {
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
-        doctorProfile: {
+        doctor: {
           include: {
             institutions: { include: { institution: true } },
             institution: true,
           },
         },
-        nurseProfile: true,
+        nurse: true,
       },
     });
 
@@ -33,15 +33,15 @@ async function main() {
     console.log(`  User: ${user.firstName} ${user.lastName} (id=${user.id})`);
     console.log(`  Role: ${user.role}`);
     console.log(`  availableRoles: ${JSON.stringify(user.availableRoles)}`);
-    console.log(`  hasNurseProfile: ${!!user.nurseProfile}`);
-    console.log(`  hasDoctorProfile: ${!!user.doctorProfile}`);
+    console.log(`  hasNurseProfile: ${!!user.nurse}`);
+    console.log(`  hasDoctorProfile: ${!!user.doctor}`);
 
-    if (user.doctorProfile) {
-      console.log(`  Doctor specialty: ${user.doctorProfile.specialty}`);
-      console.log(`  Doctor primary institution: ${user.doctorProfile.institution?.name ?? 'NONE'}`);
-      console.log(`  Doctor licenseNumber: ${user.doctorProfile.licenseNumber}`);
-      console.log(`  DoctorInstitution links (${user.doctorProfile.institutions.length}):`);
-      for (const link of user.doctorProfile.institutions) {
+    if (user.doctor) {
+      console.log(`  Doctor specialty: ${user.doctor.specialty}`);
+      console.log(`  Doctor primary institution: ${user.doctor.institution?.name ?? 'NONE'}`);
+      console.log(`  Doctor licenseNumber: ${user.doctor.licenseNumber}`);
+      console.log(`  DoctorInstitution links (${user.doctor.institutions.length}):`);
+      for (const link of user.doctor.institutions) {
         console.log(
           `    → ${link.institution.name} | active=${link.isActive} | primary=${link.isPrimary} | specialty(override)=${link.specialty ?? '(none)'}`,
         );

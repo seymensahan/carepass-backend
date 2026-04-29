@@ -10,8 +10,8 @@ const prisma = new PrismaClient();
 async function main() {
   const institutions = await prisma.institution.findMany({
     include: {
-      adminUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-      doctors: { select: { id: true } },
+      admin: { select: { id: true, email: true, firstName: true, lastName: true } },
+      doctorInstitutions: { select: { id: true } },
     },
     orderBy: { createdAt: 'asc' },
   });
@@ -23,9 +23,9 @@ async function main() {
     console.log(`   id: ${inst.id}`);
     console.log(`   type: ${inst.type}`);
     console.log(
-      `   admin: ${inst.adminUser ? `${inst.adminUser.firstName} ${inst.adminUser.lastName} <${inst.adminUser.email}>` : '(no admin user)'}`,
+      `   admin: ${inst.admin ? `${inst.admin.firstName} ${inst.admin.lastName} <${inst.admin.email}>` : '(no admin user)'}`,
     );
-    console.log(`   doctors attached: ${inst.doctors.length}`);
+    console.log(`   doctor links: ${inst.doctorInstitutions.length}`);
     console.log('');
   }
 }
