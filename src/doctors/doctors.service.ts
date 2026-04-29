@@ -471,10 +471,86 @@ export class DoctorsService {
   // ---------------------------------------------------------------------------
   // REMOVE DOCTOR FROM INSTITUTION
   // ---------------------------------------------------------------------------
-  async removeDoctorFromInstitution(doctorId: string, institutionId: string) {
-    return this.prisma.doctorInstitution.update({
+  async removeDoctorFromInstitution(
+    doctorId: string,
+    institutionId: string,
+    options?: { reason?: string; performedBy?: string },
+  ) {
+    const link = await this.prisma.doctorInstitution.findUnique({
       where: { doctorId_institutionId: { doctorId, institutionId } },
-      data: { isActive: false, endDate: new Date() },
+      include: {
+        doctor: { include: { user: true } },
+        institution: true,
+      },
     });
+
+    if (!link) {
+      throw new NotFoundException("Affiliation médecin-institution introuvable");
+    }
+
+    const updated = await this.prisma.doctorInstitution.update({
+      where: { doctorId_institutionId: { doctorId, institutionId } },
+      data: {
+        isActive: false,
+        endDate: new Date(),
+        departureReason: options?.reason ?? null,
+        departedBy: options?.performedBy ?? null,
+      },
+    });
+
+    // Audit log so admins can trace who removed which doctor and why
+    await this.prisma.auditLog
+      .create({
+        data: {
+          userId: options?.performedBy ?? null,
+          action: 'doctor.removed_from_institution',
+          resource: 'doctor_institution',
+          resourceId: link.id,
+          details: {
+            doctorId,
+            doctorName: `${link.doctor.user.firstName} ${link.doctor.user.lastName}`,
+            doctorEmail: link.doctor.user.email,
+            institutionId,
+            institutionName: link.institution.name,
+            reason: options?.reason ?? null,
+          },
+        },
+      })
+      .catch((e) => this.logger.warn(`AuditLog write failed: ${e.message}`));
+
+    // Notify the doctor that they have been removed
+    await this.prisma.notification
+      .create({
+        data: {
+          userId: link.doctor.userId,
+          title: `Affiliation terminée — ${link.institution.name}`,
+          message: options?.reason
+            ? `Vous n'êtes plus affilié(e) à ${link.institution.name}. Motif : ${options.reason}`
+            : `Vous n'êtes plus affilié(e) à ${link.institution.name}.`,
+          type: 'warning',
+        },
+      })
+      .catch((e) => this.logger.warn(`Notification write failed: ${e.message}`));
+
+    // If the institution being left was the doctor's primary, clear the
+    // primary pointer on the Doctor record so the dashboards stay consistent.
+    if (link.doctor.institutionId === institutionId) {
+      const fallback = await this.prisma.doctorInstitution.findFirst({
+        where: { doctorId, isActive: true, NOT: { institutionId } },
+        orderBy: [{ isPrimary: 'desc' }, { startDate: 'asc' }],
+      });
+      await this.prisma.doctor.update({
+        where: { id: doctorId },
+        data: { institutionId: fallback?.institutionId ?? null },
+      });
+      if (fallback) {
+        await this.prisma.doctorInstitution.update({
+          where: { id: fallback.id },
+          data: { isPrimary: true },
+        });
+      }
+    }
+
+    return updated;
   }
 }

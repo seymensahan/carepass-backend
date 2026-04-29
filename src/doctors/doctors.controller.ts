@@ -7,6 +7,7 @@ import {
   Param,
   Body,
   Query,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -186,8 +187,13 @@ export class DoctorsController {
   async removeDoctorFromInstitution(
     @Param('id') id: string,
     @Param('institutionId') institutionId: string,
+    @Body() body: { reason?: string } = {},
+    @Req() req?: any,
   ) {
-    return this.doctorsService.removeDoctorFromInstitution(id, institutionId);
+    return this.doctorsService.removeDoctorFromInstitution(id, institutionId, {
+      reason: body?.reason,
+      performedBy: req?.user?.id ?? req?.user?.userId,
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -422,10 +422,17 @@ model DoctorInstitution {
   doctorId      String    @map("doctor_id")
   institutionId String    @map("institution_id")
   role          String    @default("doctor") // doctor, consultant, visiting
+  // Optional override of Doctor.specialty for this specific institution.
+  // Lets the same physician be "Généraliste" in solo practice and
+  // "Cardiologue" in a hospital where they consult.
+  specialty     String?
   isPrimary     Boolean   @default(false) @map("is_primary")
   startDate     DateTime  @default(now()) @map("start_date")
   endDate       DateTime? @map("end_date")
   isActive      Boolean   @default(true) @map("is_active")
+  // Departure tracking
+  departureReason String? @map("departure_reason")
+  departedBy      String? @map("departed_by") // userId of admin who removed the doctor
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

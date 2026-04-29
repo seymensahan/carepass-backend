@@ -64,6 +64,46 @@ export class InvitationsService {
     // Check if user already exists with this email
     const existingUser = await this.prisma.user.findUnique({ where: { email } });
     if (existingUser) {
+      // Pre-check role compatibility: an account whose primary role and
+      // availableRoles do not include the invited role would be rejected at
+      // acceptance time (registerViaInvitation throws). Catch this early so
+      // the admin gets a clear error instead of a stale "pending" invitation.
+      const userRoles = new Set<string>(
+        existingUser.availableRoles && existingUser.availableRoles.length > 0
+          ? (existingUser.availableRoles as string[])
+          : [existingUser.role],
+      );
+      const compatibleRoles: Record<typeof role, string[]> = {
+        doctor: ['doctor'],
+        nurse: ['nurse'],
+      };
+      const allowed = compatibleRoles[role].some((r) => userRoles.has(r));
+      // Patients can always be promoted to a clinician role on accept; other
+      // non-clinical roles (lab, insurance, super_admin, field_agent,
+      // institution_admin) are rejected because they would conflict.
+      const promotablePrimary = existingUser.role === 'patient';
+      if (!allowed && !promotablePrimary) {
+        const roleLabelFr =
+          existingUser.role === 'nurse'
+            ? 'infirmier(e)'
+            : existingUser.role === 'lab'
+            ? 'laboratoire'
+            : existingUser.role === 'insurance'
+            ? 'assurance'
+            : existingUser.role === 'institution_admin'
+            ? 'admin d\'institution'
+            : existingUser.role === 'super_admin'
+            ? 'super-admin'
+            : existingUser.role === 'field_agent'
+            ? 'agent terrain'
+            : existingUser.role;
+        throw new ConflictException(
+          `Cet email appartient déjà à un compte ${roleLabelFr}. ` +
+          `Pour inviter cette personne en tant que ${role === 'doctor' ? 'médecin' : 'infirmier(e)'}, ` +
+          `demandez-lui d'utiliser une autre adresse, ou contactez le support pour fusionner les rôles.`,
+        );
+      }
+
       // Check if already affiliated
       if (role === 'doctor') {
         const existingDoc = await this.prisma.doctor.findFirst({
