@@ -3,6 +3,15 @@
 // no-op when SENTRY_DSN is not set.
 import './instrument';
 
+// Polyfill `globalThis.crypto` for Node < 19. @nestjs/schedule uses
+// `crypto.randomUUID()` as a global; without this the app crashes at startup
+// when the container ends up running an older Node runtime than the Dockerfile
+// specifies.
+import { webcrypto } from 'node:crypto';
+if (!(globalThis as any).crypto) {
+  (globalThis as any).crypto = webcrypto;
+}
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
