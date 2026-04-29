@@ -101,6 +101,22 @@ export class HospitalisationsController {
     return this.service.discharge(id, user);
   }
 
+  @Patch(':id/admin-status')
+  @Roles('institution_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Modifier le statut (admin institution)',
+    description:
+      'Permet à l\'admin de l\'institution de forcer un changement de statut (en_cours, terminee, transferee). Une raison peut être fournie et un AuditLog est créé.',
+  })
+  adminUpdateStatus(
+    @Param('id') id: string,
+    @Body() body: { status: 'en_cours' | 'terminee' | 'transferee'; reason?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.service.adminUpdateStatus(id, body.status, user, body.reason);
+  }
+
   @Post(':id/vitals')
   @Roles('doctor')
   @HttpCode(HttpStatus.CREATED)

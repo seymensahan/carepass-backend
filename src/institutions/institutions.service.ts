@@ -225,19 +225,34 @@ export class InstitutionsService {
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
+    // Use the DoctorInstitution join table so doctors who joined as
+    // consultants/visiting (isPrimary=false) also appear in the institution
+    // dashboard. The previous query only listed primary affiliates.
+    const where = {
+      OR: [
+        { institutionId: id },
+        { institutions: { some: { institutionId: id, isActive: true } } },
+      ],
+    } as const;
+
     const [data, total] = await Promise.all([
       this.prisma.doctor.findMany({
-        where: { institutionId: id },
+        where,
         skip,
         take: limit,
         include: {
           user: {
             select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatarUrl: true, isActive: true },
           },
+          institutions: {
+            where: { institutionId: id },
+            select: { specialty: true, role: true, isPrimary: true, startDate: true, isActive: true },
+            take: 1,
+          },
           _count: { select: { consultations: true } },
         },
       }),
-      this.prisma.doctor.count({ where: { institutionId: id } }),
+      this.prisma.doctor.count({ where }),
     ]);
 
     // Optimized: fetch per-doctor stats in 2 aggregate queries instead of 2 per doctor (N+1)
@@ -271,11 +286,19 @@ export class InstitutionsService {
       }
     }
 
-    const enriched = data.map((d) => ({
-      ...d,
-      patientsCount: patientsCountMap[d.id] || 0,
-      consultationsThisMonth: consultationsThisMonthMap[d.id] || 0,
-    }));
+    const enriched = data.map((d: any) => {
+      const link = Array.isArray(d.institutions) ? d.institutions[0] : null;
+      return {
+        ...d,
+        // Override the primary specialty with the institution-specific one when set
+        specialty: link?.specialty || d.specialty,
+        affiliationDate: link?.startDate || d.createdAt,
+        institutionRole: link?.role || 'doctor',
+        isPrimaryAtInstitution: link ? link.isPrimary : d.institutionId === id,
+        patientsCount: patientsCountMap[d.id] || 0,
+        consultationsThisMonth: consultationsThisMonthMap[d.id] || 0,
+      };
+    });
 
     return {
       success: true,
@@ -292,6 +315,136 @@ export class InstitutionsService {
   /**
    * Liste des infirmiers d'une institution.
    */
+  /**
+   * Enriched detail of a single doctor for the institution admin: profile,
+   * multi-institution affiliations, performance metrics, recent activity.
+   */
+  async findDoctorDetail(institutionId: string, doctorId: string) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatarUrl: true,
+            isActive: true,
+            createdAt: true,
+          },
+        },
+        institutions: {
+          where: { isActive: true },
+          include: { institution: { select: { id: true, name: true, type: true } } },
+        },
+      },
+    });
+    if (!doctor) {
+      throw new NotFoundException('Medecin non trouve');
+    }
+
+    const link = doctor.institutions.find((i) => i.institutionId === institutionId);
+    if (!link && doctor.institutionId !== institutionId) {
+      throw new NotFoundException("Ce medecin n'est pas affilie a votre institution");
+    }
+
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      consultationsThisMonth,
+      consultationsLast30d,
+      totalConsultations,
+      uniquePatients,
+      prescriptionsThisMonth,
+      hospitalisationsActive,
+      labOrdersThisMonth,
+      recentConsultations,
+    ] = await Promise.all([
+      this.prisma.consultation.count({
+        where: { doctorId, date: { gte: firstDayOfMonth } },
+      }),
+      this.prisma.consultation.count({
+        where: { doctorId, date: { gte: last30Days } },
+      }),
+      this.prisma.consultation.count({ where: { doctorId } }),
+      this.prisma.consultation.findMany({
+        where: { doctorId },
+        select: { patientId: true },
+        distinct: ['patientId'],
+      }),
+      this.prisma.prescription.count({
+        where: { doctorId, createdAt: { gte: firstDayOfMonth } },
+      }),
+      this.prisma.hospitalisation.count({
+        where: { doctorId, status: 'en_cours' },
+      }),
+      this.prisma.labOrder.count({
+        where: { doctorId, createdAt: { gte: firstDayOfMonth } },
+      }),
+      this.prisma.consultation.findMany({
+        where: { doctorId },
+        take: 8,
+        orderBy: { date: 'desc' },
+        select: {
+          id: true,
+          date: true,
+          chiefComplaint: true,
+          diagnosis: true,
+          patient: {
+            select: { user: { select: { firstName: true, lastName: true } } },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      id: doctor.id,
+      firstName: doctor.user.firstName,
+      lastName: doctor.user.lastName,
+      email: doctor.user.email,
+      phone: doctor.user.phone,
+      avatarUrl: doctor.user.avatarUrl,
+      specialty: link?.specialty || doctor.specialty,
+      licenseNumber: doctor.licenseNumber,
+      isVerified: doctor.isVerified,
+      bio: doctor.bio,
+      city: doctor.city,
+      region: doctor.region,
+      affiliationDate: link?.startDate || doctor.createdAt,
+      role: link?.role || 'doctor',
+      isPrimaryAtInstitution: link ? link.isPrimary : doctor.institutionId === institutionId,
+      status: doctor.user.isActive !== false ? 'active' : 'suspended',
+      affiliations: doctor.institutions.map((i) => ({
+        institutionId: i.institutionId,
+        institutionName: i.institution.name,
+        type: i.institution.type,
+        role: i.role,
+        specialty: i.specialty,
+        isPrimary: i.isPrimary,
+        startDate: i.startDate,
+      })),
+      stats: {
+        totalConsultations,
+        consultationsThisMonth,
+        consultationsLast30d,
+        activePatients: uniquePatients.length,
+        prescriptionsThisMonth,
+        hospitalisationsActive,
+        labOrdersThisMonth,
+      },
+      recentActivity: recentConsultations.map((c) => ({
+        id: c.id,
+        type: 'consultation' as const,
+        timestamp: c.date,
+        description: `Consultation — ${c.patient.user.firstName} ${c.patient.user.lastName}${c.chiefComplaint ? ` · ${c.chiefComplaint}` : ''}`,
+      })),
+    };
+  }
+
   async findNurses(id: string) {
     const institution = await this.prisma.institution.findUnique({ where: { id } });
     if (!institution) throw new NotFoundException('Institution non trouvee');

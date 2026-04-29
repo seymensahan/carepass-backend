@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -14,6 +15,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class HospitalisationsService {
+  private readonly logger = new Logger(HospitalisationsService.name);
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly notificationsService: NotificationsService,
@@ -343,6 +346,64 @@ export class HospitalisationsService {
       where: { id },
       data: { status: 'terminee', dischargeDate: new Date() },
     });
+  }
+
+  /**
+   * Admin override: an institution admin can force a status change on any
+   * hospitalisation that belongs to their institution. Used for closing
+   * stale records, correcting errors, or moving a patient to "transferee".
+   */
+  async adminUpdateStatus(
+    id: string,
+    status: 'en_cours' | 'terminee' | 'transferee',
+    user: any,
+    reason?: string,
+  ) {
+    const hosp = await this.prisma.hospitalisation.findUnique({
+      where: { id },
+      include: { institution: true },
+    });
+    if (!hosp) throw new NotFoundException('Hospitalisation non trouvée');
+
+    // Verify the admin manages this institution
+    const adminInstitution = await this.prisma.institution.findFirst({
+      where: { adminUserId: user.id },
+    });
+    if (!adminInstitution || adminInstitution.id !== hosp.institutionId) {
+      throw new ForbiddenException(
+        "Vous n'êtes pas l'admin de l'institution qui gère cette hospitalisation",
+      );
+    }
+
+    const updated = await this.prisma.hospitalisation.update({
+      where: { id },
+      data: {
+        status: status as any,
+        ...(status === 'terminee' && !hosp.dischargeDate
+          ? { dischargeDate: new Date() }
+          : {}),
+      },
+    });
+
+    // Audit log so we can trace admin overrides on clinical records.
+    await this.prisma.auditLog
+      .create({
+        data: {
+          userId: user.id,
+          action: 'hospitalisation.admin_status_change',
+          resource: 'hospitalisation',
+          resourceId: id,
+          details: {
+            previousStatus: hosp.status,
+            newStatus: status,
+            reason: reason ?? null,
+            institutionId: hosp.institutionId,
+          },
+        },
+      })
+      .catch((e) => this.logger.warn(`AuditLog write failed: ${e.message}`));
+
+    return updated;
   }
 
   async addVital(hospitalisationId: string, dto: AddVitalDto, user: any) {

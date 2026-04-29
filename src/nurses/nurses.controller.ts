@@ -124,4 +124,18 @@ export class NursesController {
   getMyPatients(@CurrentUser() user: any) {
     return this.service.getMyPatients(user.id);
   }
+
+  /**
+   * Detailed view of a nurse for the institution admin: profile, performance
+   * metrics, recent task history, hospitalisations managed, vitals recorded.
+   */
+  @Get(':nurseId/detail')
+  @Roles('institution_admin', 'super_admin')
+  @ApiOperation({ summary: 'Détail complet d\'un(e) infirmier(e) — pour l\'admin institution' })
+  getNurseDetailForAdmin(
+    @CurrentUser() user: any,
+    @Param('nurseId') nurseId: string,
+  ) {
+    return this.service.getNurseDetailForAdmin(user, nurseId);
+  }
 }

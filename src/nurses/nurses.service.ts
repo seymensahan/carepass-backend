@@ -465,4 +465,197 @@ export class NursesService {
       medicalConditions: patient.medicalConditions,
     };
   }
+
+  /**
+   * Full detail view for an institution admin: profile, performance metrics,
+   * recent task history, hospitalisations managed, vitals recorded.
+   */
+  async getNurseDetailForAdmin(adminUser: any, nurseId: string) {
+    const nurse = await this.prisma.nurse.findUnique({
+      where: { id: nurseId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatarUrl: true,
+            createdAt: true,
+          },
+        },
+        institution: { select: { id: true, name: true } },
+      },
+    });
+    if (!nurse) throw new NotFoundException('Infirmier(e) non trouvé(e)');
+
+    // Verify admin manages this nurse's institution (super_admin bypasses)
+    if (adminUser.role !== 'super_admin') {
+      const adminInstitution = await this.prisma.institution.findFirst({
+        where: { adminUserId: adminUser.id },
+      });
+      if (!adminInstitution || adminInstitution.id !== nurse.institutionId) {
+        throw new ForbiddenException(
+          "Vous n'êtes pas l'admin de l'institution de cette infirmière",
+        );
+      }
+    }
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [
+      totalExecutions,
+      executionsLast30d,
+      totalVitals,
+      vitalsLast30d,
+      hospitalisationsAssigned,
+      hospitalisationsActive,
+      recentExecutions,
+      activeHospitalisations,
+      recentVitals,
+    ] = await Promise.all([
+      this.prisma.carePlanExecution.count({ where: { nurseId: nurse.id } }),
+      this.prisma.carePlanExecution.count({
+        where: { nurseId: nurse.id, executedAt: { gte: thirtyDaysAgo } },
+      }),
+      this.prisma.hospitalisationVital.count({ where: { nurseId: nurse.id } }),
+      this.prisma.hospitalisationVital.count({
+        where: { nurseId: nurse.id, recordedAt: { gte: thirtyDaysAgo } },
+      }),
+      this.prisma.hospitalisationNurseAssignment.count({ where: { nurseId: nurse.id } }),
+      this.prisma.hospitalisationNurseAssignment.count({
+        where: { nurseId: nurse.id, hospitalisation: { status: 'en_cours' } },
+      }),
+      this.prisma.carePlanExecution.findMany({
+        where: { nurseId: nurse.id },
+        take: 15,
+        orderBy: { executedAt: 'desc' },
+        include: {
+          carePlanItem: {
+            select: {
+              title: true,
+              type: true,
+              hospitalisation: {
+                select: {
+                  id: true,
+                  room: true,
+                  patient: {
+                    select: {
+                      user: { select: { firstName: true, lastName: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.hospitalisationNurseAssignment.findMany({
+        where: { nurseId: nurse.id, hospitalisation: { status: 'en_cours' } },
+        include: {
+          hospitalisation: {
+            select: {
+              id: true,
+              room: true,
+              bed: true,
+              admissionDate: true,
+              status: true,
+              diagnosis: true,
+              patient: {
+                select: {
+                  user: { select: { firstName: true, lastName: true } },
+                },
+              },
+              doctor: {
+                select: { user: { select: { firstName: true, lastName: true } } },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.hospitalisationVital.findMany({
+        where: { nurseId: nurse.id },
+        take: 10,
+        orderBy: { recordedAt: 'desc' },
+        include: {
+          hospitalisation: {
+            select: {
+              id: true,
+              room: true,
+              patient: {
+                select: { user: { select: { firstName: true, lastName: true } } },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const completionRate =
+      hospitalisationsAssigned > 0 ? totalExecutions / hospitalisationsAssigned : 0;
+
+    return {
+      id: nurse.id,
+      userId: nurse.userId,
+      firstName: nurse.user.firstName,
+      lastName: nurse.user.lastName,
+      email: nurse.user.email,
+      phone: nurse.user.phone,
+      avatarUrl: nurse.user.avatarUrl,
+      specialty: nurse.specialty,
+      licenseNumber: nurse.licenseNumber,
+      isVerified: nurse.isVerified,
+      institution: nurse.institution,
+      joinedAt: nurse.createdAt,
+      stats: {
+        totalExecutions,
+        executionsLast30d,
+        totalVitals,
+        vitalsLast30d,
+        hospitalisationsAssigned,
+        hospitalisationsActive,
+        completionRate: Math.round(completionRate * 100) / 100,
+      },
+      recentExecutions: recentExecutions.map((e) => ({
+        id: e.id,
+        executedAt: e.executedAt,
+        notes: e.notes,
+        taskTitle: e.carePlanItem?.title,
+        taskType: e.carePlanItem?.type,
+        patientName: e.carePlanItem?.hospitalisation?.patient
+          ? `${e.carePlanItem.hospitalisation.patient.user.firstName} ${e.carePlanItem.hospitalisation.patient.user.lastName}`
+          : null,
+        room: e.carePlanItem?.hospitalisation?.room,
+      })),
+      activeHospitalisations: activeHospitalisations.map((a) => ({
+        id: a.hospitalisation.id,
+        room: a.hospitalisation.room,
+        bed: a.hospitalisation.bed,
+        admissionDate: a.hospitalisation.admissionDate,
+        diagnosis: a.hospitalisation.diagnosis,
+        patientName: `${a.hospitalisation.patient.user.firstName} ${a.hospitalisation.patient.user.lastName}`,
+        doctorName: a.hospitalisation.doctor
+          ? `${a.hospitalisation.doctor.user.firstName} ${a.hospitalisation.doctor.user.lastName}`
+          : null,
+      })),
+      recentVitals: recentVitals.map((v) => ({
+        id: v.id,
+        recordedAt: v.recordedAt,
+        temperature: v.temperature,
+        systolic: v.systolic,
+        diastolic: v.diastolic,
+        heartRate: v.heartRate,
+        spO2: v.spO2,
+        glycemia: v.glycemia,
+        weight: v.weight,
+        notes: v.notes,
+        patientName: v.hospitalisation?.patient
+          ? `${v.hospitalisation.patient.user.firstName} ${v.hospitalisation.patient.user.lastName}`
+          : null,
+        room: v.hospitalisation?.room,
+      })),
+    };
+  }
 }

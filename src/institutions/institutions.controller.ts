@@ -126,6 +126,20 @@ export class InstitutionsController {
   }
 
   /**
+   * GET /institutions/:id/doctors/:doctorId
+   * Detail enrichi d'un medecin pour l'admin de l'institution.
+   */
+  @Get(':id/doctors/:doctorId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Detail d\'un medecin (admin institution)' })
+  findDoctorDetail(
+    @Param('id') id: string,
+    @Param('doctorId') doctorId: string,
+  ) {
+    return this.institutionsService.findDoctorDetail(id, doctorId);
+  }
+
+  /**
    * GET /institutions/:id/nurses
    * Liste des infirmiers d'une institution.
    */

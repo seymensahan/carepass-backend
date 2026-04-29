@@ -1,28 +1,33 @@
 /**
- * Attach the two test doctors (dradrien1, dradrien2) to "Hôpital Central de
- * Yaoundé" so the demo institution dashboard shows realistic doctor metrics.
+ * Attach the two test doctors (dradrien1, dradrien2) to a hospital so the
+ * demo institution dashboard shows realistic doctor metrics.
  *
  * Run with: npx ts-node scripts/attach-demo-doctors.ts
+ *
+ * Override target hospital with env vars:
+ *   HOSPITAL_NAME="My Hospital" npx ts-node scripts/attach-demo-doctors.ts
+ *   HOSPITAL_ADMIN_EMAIL="admin@h.com" npx ts-node scripts/attach-demo-doctors.ts
  */
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const HOSPITAL_NAME = 'Hôpital Central de Yaoundé';
+const HOSPITAL_NAME = process.env.HOSPITAL_NAME || 'Hôpital Central de Yaoundé';
+const HOSPITAL_ADMIN_EMAIL = process.env.HOSPITAL_ADMIN_EMAIL;
 
 const DOCTORS_TO_ATTACH = [
   {
     email: 'dradrien1@gmail.com',
-    fallbackFirstName: 'Adrien',
-    fallbackLastName: 'Nkemgefa',
+    forceFirstName: 'Adrien',
+    forceLastName: 'Nkemgefa',
     specialty: 'Médecine Générale',
     role: 'doctor',
     isPrimary: true,
   },
   {
     email: 'dradrien2@gmail.com',
-    fallbackFirstName: 'Claude',
-    fallbackLastName: 'Nkemgefa',
+    forceFirstName: 'Claude',
+    forceLastName: 'Nkemgefa',
     specialty: 'Cardiologie',
     role: 'doctor',
     isPrimary: false,
@@ -30,42 +35,85 @@ const DOCTORS_TO_ATTACH = [
 ];
 
 async function main() {
-  const hospital = await prisma.institution.findFirst({
-    where: { name: HOSPITAL_NAME },
-  });
+  let hospital;
 
-  if (!hospital) {
-    console.error(`Hospital "${HOSPITAL_NAME}" not found. Did the seed run?`);
-    process.exit(1);
+  if (HOSPITAL_ADMIN_EMAIL) {
+    const adminUser = await prisma.user.findUnique({ where: { email: HOSPITAL_ADMIN_EMAIL } });
+    if (!adminUser) {
+      console.error(`Admin user "${HOSPITAL_ADMIN_EMAIL}" not found.`);
+      process.exit(1);
+    }
+    hospital = await prisma.institution.findFirst({
+      where: { adminUserId: adminUser.id },
+    });
+    if (!hospital) {
+      console.error(`No institution found administered by ${HOSPITAL_ADMIN_EMAIL}.`);
+      process.exit(1);
+    }
+  } else {
+    hospital = await prisma.institution.findFirst({
+      where: { name: HOSPITAL_NAME },
+    });
+    if (!hospital) {
+      console.error(`Hospital "${HOSPITAL_NAME}" not found.`);
+      console.error(`Run "npx ts-node scripts/list-institutions.ts" to see all institutions.`);
+      process.exit(1);
+    }
   }
 
-  console.log(`Hospital found: ${hospital.name} (${hospital.id})`);
+  console.log(`\nHospital target: ${hospital.name} (${hospital.id})\n`);
 
   for (const target of DOCTORS_TO_ATTACH) {
-    const user = await prisma.user.findUnique({ where: { email: target.email } });
-    if (!user) {
-      console.log(`  ✗ ${target.email} — user not found. Run the user creation step first.`);
-      continue;
-    }
+    console.log(`▶ ${target.email}`);
 
-    if (!user.firstName || !user.lastName) {
-      await prisma.user.update({
-        where: { id: user.id },
+    let user = await prisma.user.findUnique({ where: { email: target.email } });
+
+    if (!user) {
+      // Create the account from scratch with a known password (Password123!)
+      const passwordHash = '$2b$10$rqXC0ZS9SYc0L9N6qP3VsuqK7MRr2QhpTfMnmMZUKO8hFvSdYeKOq';
+      user = await prisma.user.create({
         data: {
-          firstName: user.firstName || target.fallbackFirstName,
-          lastName: user.lastName || target.fallbackLastName,
+          email: target.email,
+          passwordHash,
+          firstName: target.forceFirstName,
+          lastName: target.forceLastName,
+          role: 'doctor',
+          availableRoles: ['doctor'],
+          isVerified: true,
         },
       });
+      console.log(`   ✓ User created from scratch with role=doctor`);
+    } else {
+      // Force-update name + role + availableRoles so the doctors list always shows
+      // the right name regardless of what data was already there.
+      const availableRoles = new Set<string>(
+        user.availableRoles && user.availableRoles.length > 0
+          ? (user.availableRoles as string[])
+          : [user.role],
+      );
+      availableRoles.add('doctor');
+
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          firstName: target.forceFirstName,
+          lastName: target.forceLastName,
+          // Promote primary role to doctor so the institution dashboard treats them
+          // as one. The other roles stay reachable through availableRoles.
+          role: 'doctor',
+          availableRoles: [...availableRoles] as any,
+          isVerified: true,
+        },
+      });
+      console.log(`   ✓ User updated: name forced to "${target.forceFirstName} ${target.forceLastName}", role=doctor`);
     }
 
-    const availableRoles = new Set<string>(
-      user.availableRoles && user.availableRoles.length > 0 ? user.availableRoles : [user.role],
-    );
-    availableRoles.add('doctor');
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { availableRoles: [...availableRoles] as any },
-    });
+    // Drop any nurse profile that would conflict with the doctor view
+    const existingNurse = await prisma.nurse.findUnique({ where: { userId: user.id } });
+    if (existingNurse) {
+      await prisma.nurse.delete({ where: { id: existingNurse.id } });
+      console.log(`   ⚠ Existing nurse profile removed (was blocking doctor flow)`);
+    }
 
     let doctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
     if (!doctor) {
@@ -79,9 +127,9 @@ async function main() {
           verifiedAt: new Date(),
         },
       });
-      console.log(`  ✓ ${target.email} — Doctor profile created (${target.specialty})`);
+      console.log(`   ✓ Doctor profile created (specialty=${target.specialty})`);
     } else {
-      await prisma.doctor.update({
+      doctor = await prisma.doctor.update({
         where: { id: doctor.id },
         data: {
           specialty: doctor.specialty || target.specialty,
@@ -90,7 +138,7 @@ async function main() {
           verifiedAt: doctor.verifiedAt || new Date(),
         },
       });
-      console.log(`  ✓ ${target.email} — Doctor profile already exists, kept`);
+      console.log(`   ✓ Doctor profile already existed, kept`);
     }
 
     await prisma.doctorInstitution.upsert({
@@ -101,25 +149,28 @@ async function main() {
         doctorId: doctor.id,
         institutionId: hospital.id,
         role: target.role,
+        specialty: target.specialty,
         isPrimary: target.isPrimary,
         isActive: true,
         startDate: new Date(),
       },
       update: {
         role: target.role,
+        specialty: target.specialty,
+        isPrimary: target.isPrimary,
         isActive: true,
         endDate: null,
       },
     });
-    console.log(`     → Attached to ${HOSPITAL_NAME} (specialty: ${target.specialty}, primary: ${target.isPrimary})`);
+    console.log(`   ✓ Attached to ${hospital.name} (specialty=${target.specialty}, primary=${target.isPrimary})\n`);
   }
 
-  console.log('\nDone. The two doctors are now visible in the institution dashboard.');
+  console.log('Done. The two doctors are now visible in the institution dashboard.');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('\n❌ Script failed:', e);
     process.exit(1);
   })
   .finally(async () => {
