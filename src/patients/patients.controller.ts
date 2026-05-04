@@ -18,6 +18,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { PatientsService } from './patients.service';
+import { DependentMajorityService } from './dependent-majority.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientFilterDto } from './dto/patient-filter.dto';
@@ -33,7 +34,10 @@ import { PaginationQueryDto } from '../common/dto/pagination.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('patients')
 export class PatientsController {
-  constructor(private readonly patientsService: PatientsService) {}
+  constructor(
+    private readonly patientsService: PatientsService,
+    private readonly dependentMajorityService: DependentMajorityService,
+  ) {}
 
   /**
    * GET /patients
@@ -104,6 +108,19 @@ export class PatientsController {
     @CurrentUser() user: any,
   ) {
     return this.patientsService.transferDependent(user.id, dependentId, body);
+  }
+
+  /**
+   * POST /patients/admin/trigger-majority-check
+   * Manually trigger the dependent-majority cron job (super_admin only).
+   * Useful for testing or catching up on missed runs.
+   */
+  @Post('admin/trigger-majority-check')
+  @Roles('super_admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lancer manuellement la vérification de majorité des dépendants' })
+  async triggerMajorityCheck() {
+    return this.dependentMajorityService.manualTrigger();
   }
 
   /**

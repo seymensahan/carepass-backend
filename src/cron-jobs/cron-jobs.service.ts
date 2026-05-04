@@ -32,6 +32,15 @@ export const CRON_JOBS_REGISTRY = [
     scheduleHuman: 'Chaque heure',
     triggerEndpoint: 'POST /access-grants/admin/trigger-cleanup',
   },
+  {
+    name: 'dependent-majority-check',
+    label: 'Notification de majorité des dépendants',
+    description:
+      'Vérifie chaque jour les dépendants ayant atteint l\'âge de majorité (16 ans par défaut). Envoie une notification au tuteur lui proposant de transférer la gestion du compte au jeune adulte.',
+    schedule: '0 3 * * *', // EVERY_DAY_AT_3AM
+    scheduleHuman: 'Chaque jour à 03:00',
+    triggerEndpoint: 'POST /patients/admin/trigger-majority-check',
+  },
 ] as const;
 
 @Injectable()
