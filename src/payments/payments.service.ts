@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as https from 'https';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReferralService } from '../referral/referral.service';
+import { InstitutionReferralService } from '../referral/institution-referral.service';
 
 @Injectable()
 export class PaymentsService {
@@ -21,6 +22,7 @@ export class PaymentsService {
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
     private readonly referralService: ReferralService,
+    private readonly institutionReferralService: InstitutionReferralService,
   ) {
     this.pawapayBaseUrl = this.configService.get<string>(
       'PAWAPAY_API_URL',
@@ -361,6 +363,7 @@ export class PaymentsService {
                 gender: regData.gender || undefined,
                 bloodGroup: regData.bloodGroup || undefined,
                 referredByCode: regData.referralCode || undefined,
+                referredByInstitutionCode: regData.institutionReferralCode || undefined,
               },
             });
 
@@ -444,21 +447,32 @@ export class PaymentsService {
           where: { id: pendingReg.id }, data: { status: 'completed' },
         });
 
-        // Process referral if patient registered with a referral code
+        // Process referrals if patient registered with one or more codes.
+        // Doctor referral and institution referral are independent — both can
+        // pay out if the patient enters both codes.
         const regRole = regData.role || (regData.institutionName ? 'institution_admin' : 'patient');
-        if (regRole === 'patient' && regData.referralCode) {
+        if (regRole === 'patient' && (regData.referralCode || regData.institutionReferralCode)) {
           try {
-            // Check if this is the patient's first payment (it is, since they just registered)
             const payment = await this.prisma.payment.findFirst({
               where: { userId: result.id, status: 'completed' },
             });
             if (payment) {
-              await this.referralService.processReferral(
-                result.id,
-                regData.referralCode,
-                payment.id,
-                Number(pendingReg.amount),
-              );
+              if (regData.referralCode) {
+                await this.referralService.processReferral(
+                  result.id,
+                  regData.referralCode,
+                  payment.id,
+                  Number(pendingReg.amount),
+                );
+              }
+              if (regData.institutionReferralCode) {
+                await this.institutionReferralService.processReferral(
+                  result.id,
+                  regData.institutionReferralCode,
+                  payment.id,
+                  Number(pendingReg.amount),
+                );
+              }
             }
           } catch (refErr) {
             this.logger.error(`Referral processing failed: ${refErr}`);
@@ -726,18 +740,14 @@ export class PaymentsService {
     paymentAmount: number,
   ) {
     try {
-      // Check if user is a patient with a referral code
-      const patient = await this.prisma.patient.findUnique({
-        where: { userId },
-      });
-      if (!patient || !patient.referredByCode) return;
+      const patient = await this.prisma.patient.findUnique({ where: { userId } });
+      if (!patient) return;
+      if (!patient.referredByCode && !patient.referredByInstitutionCode) return;
 
-      // Check if this is the patient's FIRST completed payment
+      // Only process referrals on the FIRST completed payment.
       const completedPayments = await this.prisma.payment.count({
         where: { userId, status: 'completed' },
       });
-
-      // Only process referral on the first payment (count should be 1 since we just completed it)
       if (completedPayments > 1) {
         this.logger.log(
           `Skipping referral for user ${userId} — not first payment (${completedPayments} completed)`,
@@ -745,12 +755,22 @@ export class PaymentsService {
         return;
       }
 
-      await this.referralService.processReferral(
-        userId,
-        patient.referredByCode,
-        paymentId,
-        paymentAmount,
-      );
+      if (patient.referredByCode) {
+        await this.referralService.processReferral(
+          userId,
+          patient.referredByCode,
+          paymentId,
+          paymentAmount,
+        );
+      }
+      if (patient.referredByInstitutionCode) {
+        await this.institutionReferralService.processReferral(
+          userId,
+          patient.referredByInstitutionCode,
+          paymentId,
+          paymentAmount,
+        );
+      }
     } catch (err) {
       this.logger.error(`Referral processing failed for payment ${paymentId}: ${err}`);
       // Don't fail the payment if referral processing fails

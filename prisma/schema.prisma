@@ -212,6 +212,7 @@ model User {
   wallet                  Wallet?
   referralCode            ReferralCode?
   referredBy              Referral[]               @relation("ReferredPatient")
+  institutionReferredBy   InstitutionReferral[]    @relation("InstitutionReferredPatient")
 
   @@map("users")
 }
@@ -232,6 +233,7 @@ model Patient {
   region            String?
   emergencyToken    String?  @unique @map("emergency_token")
   referredByCode    String?  @map("referred_by_code")
+  referredByInstitutionCode String? @map("referred_by_institution_code")
   isMinor           Boolean  @default(false) @map("is_minor")
   managedByGuardian Boolean  @default(false) @map("managed_by_guardian")
   createdAt         DateTime @default(now()) @map("created_at")
@@ -362,6 +364,7 @@ model Institution {
   documents          InstitutionDocument[]
   invitations        Invitation[]
   appointments       Appointment[]
+  referralCode       InstitutionReferralCode?
 
   @@map("institutions")
 }
@@ -1532,6 +1535,52 @@ model Referral {
   @@unique([referralCodeId, patientUserId])
   @@index([patientUserId])
   @@map("referrals")
+}
+
+// ---------------------------------------------------------------------------
+// InstitutionReferralCode — referral code shared by all members of an
+// institution (admin, doctors, nurses). Patients who sign up with this code
+// credit the institution's wallet (50% of the first payment) instead of an
+// individual doctor.
+// ---------------------------------------------------------------------------
+model InstitutionReferralCode {
+  id             String   @id @default(uuid())
+  institutionId  String   @unique @map("institution_id")
+  code           String   @unique
+  totalReferrals Int      @default(0) @map("total_referrals")
+  totalEarnings  Decimal  @default(0) @map("total_earnings") @db.Decimal(12, 2)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  institution         Institution           @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  institutionReferrals InstitutionReferral[]
+
+  @@index([code])
+  @@map("institution_referral_codes")
+}
+
+// ---------------------------------------------------------------------------
+// InstitutionReferral — tracks which patient was referred by which institution
+// ---------------------------------------------------------------------------
+model InstitutionReferral {
+  id                       String   @id @default(uuid())
+  institutionReferralCodeId String  @map("institution_referral_code_id")
+  patientUserId            String   @map("patient_user_id")
+  paymentId                String?  @map("payment_id")
+  institutionEarning       Decimal  @default(0) @map("institution_earning") @db.Decimal(12, 2)
+  platformEarning          Decimal  @default(0) @map("platform_earning") @db.Decimal(12, 2)
+  isInitialPayment         Boolean  @default(true) @map("is_initial_payment")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  // Relations
+  institutionReferralCode InstitutionReferralCode @relation(fields: [institutionReferralCodeId], references: [id], onDelete: Cascade)
+  patientUser             User                    @relation("InstitutionReferredPatient", fields: [patientUserId], references: [id], onDelete: Cascade)
+
+  @@unique([institutionReferralCodeId, patientUserId])
+  @@index([patientUserId])
+  @@map("institution_referrals")
 }
 
 // ============================================================================
