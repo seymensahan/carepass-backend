@@ -413,6 +413,20 @@ export class ExportService {
       throw new NotFoundException('Consultation non trouvee');
     }
 
+    // Fetch the doctor's electronic signature for the prescription block.
+    let doctorSeal: { signatureUrl: string | null; licenseNumber: string; specialty: string } | null = null;
+    if (consultation.prescriptions.length > 0 && consultation.doctorId) {
+      const doc = await this.prisma.doctor.findUnique({
+        where: { id: consultation.doctorId },
+        select: {
+          signatureUrl: true,
+          licenseNumber: true,
+          specialty: true,
+        },
+      });
+      if (doc) doctorSeal = doc;
+    }
+
     // Fetch lab results for this patient around the consultation date
     const labResults = await this.prisma.labResult.findMany({
       where: {
@@ -508,6 +522,14 @@ export class ExportService {
           }
           doc.moveDown(0.5);
         }
+
+        // Doctor signature block — required for legal validity in most
+        // African jurisdictions. We render the doctor name + license, then
+        // the stamp image (or signature image as fallback) anchored to the
+        // bottom-right of the page.
+        if (doctorSeal && consultation.doctor) {
+          await this.renderDoctorSeal(doc, consultation.doctor.user, doctorSeal);
+        }
       }
 
       // Lab results
@@ -546,5 +568,76 @@ export class ExportService {
         .text('Ce document a ete genere automatiquement par CARYPASS.', { align: 'center' })
         .text('Il ne remplace pas un avis medical professionnel.', { align: 'center' });
     });
+  }
+
+  /**
+   * Render the doctor's signature block at the bottom of a prescription
+   * page: doctor name, specialty, license number, then the electronic
+   * signature image. Invoked from generateConsultationPdf once the
+   * prescription tables have been printed.
+   *
+   * The image is downloaded once at print time. On any failure we just skip
+   * the image — the textual block alone is still displayed so the
+   * prescription still looks signed.
+   */
+  private async renderDoctorSeal(
+    doc: any,
+    doctorUser: { firstName: string; lastName: string },
+    seal: { signatureUrl: string | null; licenseNumber: string; specialty: string },
+  ) {
+    doc.moveDown(1.2);
+
+    const startY = doc.y;
+    const pageWidth = doc.page.width;
+    const sealX = pageWidth - 230;
+    const sealWidth = 180;
+
+    // Doctor identity block
+    doc
+      .fontSize(9)
+      .font('Helvetica-Bold')
+      .text(`Dr. ${doctorUser.firstName} ${doctorUser.lastName}`, sealX, startY, {
+        width: sealWidth,
+        align: 'center',
+      })
+      .font('Helvetica')
+      .fontSize(8)
+      .text(seal.specialty, sealX, doc.y, { width: sealWidth, align: 'center' })
+      .text(`N° Ordre : ${seal.licenseNumber}`, sealX, doc.y, {
+        width: sealWidth,
+        align: 'center',
+      })
+      .moveDown(0.5);
+
+    const imageUrl = seal.signatureUrl;
+    if (!imageUrl) return;
+
+    try {
+      const buffer = await this.fetchImageBuffer(imageUrl);
+      if (!buffer) return;
+      const imgY = doc.y;
+      doc.image(buffer, sealX + 20, imgY, {
+        fit: [sealWidth - 40, 80],
+        align: 'center',
+      });
+      doc.moveDown(5);
+    } catch (e) {
+      // Drop the image silently — we don't want the whole PDF to fail.
+    }
+  }
+
+  /**
+   * Fetch a remote image (typically a Cloudinary URL) and return the raw
+   * bytes so pdfkit can embed it. Uses native fetch (Node 18+).
+   */
+  private async fetchImageBuffer(url: string): Promise<Buffer | null> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const arrayBuffer = await res.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch {
+      return null;
+    }
   }
 }

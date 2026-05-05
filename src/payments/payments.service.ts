@@ -10,7 +10,6 @@ import { v4 as uuidv4 } from 'uuid';
 import * as https from 'https';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { ReferralService } from '../referral/referral.service';
-import { InstitutionReferralService } from '../referral/institution-referral.service';
 
 @Injectable()
 export class PaymentsService {
@@ -22,7 +21,6 @@ export class PaymentsService {
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
     private readonly referralService: ReferralService,
-    private readonly institutionReferralService: InstitutionReferralService,
   ) {
     this.pawapayBaseUrl = this.configService.get<string>(
       'PAWAPAY_API_URL',
@@ -363,7 +361,6 @@ export class PaymentsService {
                 gender: regData.gender || undefined,
                 bloodGroup: regData.bloodGroup || undefined,
                 referredByCode: regData.referralCode || undefined,
-                referredByInstitutionCode: regData.institutionReferralCode || undefined,
               },
             });
 
@@ -447,32 +444,20 @@ export class PaymentsService {
           where: { id: pendingReg.id }, data: { status: 'completed' },
         });
 
-        // Process referrals if patient registered with one or more codes.
-        // Doctor referral and institution referral are independent — both can
-        // pay out if the patient enters both codes.
+        // Process referral if patient registered with a referral code
         const regRole = regData.role || (regData.institutionName ? 'institution_admin' : 'patient');
-        if (regRole === 'patient' && (regData.referralCode || regData.institutionReferralCode)) {
+        if (regRole === 'patient' && regData.referralCode) {
           try {
             const payment = await this.prisma.payment.findFirst({
               where: { userId: result.id, status: 'completed' },
             });
             if (payment) {
-              if (regData.referralCode) {
-                await this.referralService.processReferral(
-                  result.id,
-                  regData.referralCode,
-                  payment.id,
-                  Number(pendingReg.amount),
-                );
-              }
-              if (regData.institutionReferralCode) {
-                await this.institutionReferralService.processReferral(
-                  result.id,
-                  regData.institutionReferralCode,
-                  payment.id,
-                  Number(pendingReg.amount),
-                );
-              }
+              await this.referralService.processReferral(
+                result.id,
+                regData.referralCode,
+                payment.id,
+                Number(pendingReg.amount),
+              );
             }
           } catch (refErr) {
             this.logger.error(`Referral processing failed: ${refErr}`);
@@ -741,8 +726,7 @@ export class PaymentsService {
   ) {
     try {
       const patient = await this.prisma.patient.findUnique({ where: { userId } });
-      if (!patient) return;
-      if (!patient.referredByCode && !patient.referredByInstitutionCode) return;
+      if (!patient || !patient.referredByCode) return;
 
       // Only process referrals on the FIRST completed payment.
       const completedPayments = await this.prisma.payment.count({
@@ -755,22 +739,12 @@ export class PaymentsService {
         return;
       }
 
-      if (patient.referredByCode) {
-        await this.referralService.processReferral(
-          userId,
-          patient.referredByCode,
-          paymentId,
-          paymentAmount,
-        );
-      }
-      if (patient.referredByInstitutionCode) {
-        await this.institutionReferralService.processReferral(
-          userId,
-          patient.referredByInstitutionCode,
-          paymentId,
-          paymentAmount,
-        );
-      }
+      await this.referralService.processReferral(
+        userId,
+        patient.referredByCode,
+        paymentId,
+        paymentAmount,
+      );
     } catch (err) {
       this.logger.error(`Referral processing failed for payment ${paymentId}: ${err}`);
       // Don't fail the payment if referral processing fails

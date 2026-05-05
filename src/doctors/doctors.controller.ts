@@ -9,15 +9,19 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { DoctorsService } from './doctors.service';
 import { DoctorSyncService } from './doctor-sync.service';
@@ -194,6 +198,35 @@ export class DoctorsController {
       reason: body?.reason,
       performedBy: req?.user?.id ?? req?.user?.userId,
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // ELECTRONIC SIGNATURE — used on legally-binding prescriptions
+  // ---------------------------------------------------------------------------
+
+  /**
+   * POST /doctors/me/signature
+   * Upload an electronic signature image (drawn on screen or scanned).
+   */
+  @Post('me/signature')
+  @Roles('doctor')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Téléverser une signature électronique' })
+  uploadSignature(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: any,
+  ) {
+    return this.doctorsService.uploadSignature(userId, file);
+  }
+
+  /**
+   * DELETE /doctors/me/signature
+   */
+  @Delete('me/signature')
+  @Roles('doctor')
+  removeSignature(@CurrentUser('id') userId: string) {
+    return this.doctorsService.removeSignature(userId);
   }
 
   // ---------------------------------------------------------------------------

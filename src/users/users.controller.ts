@@ -171,6 +171,33 @@ export class UsersController {
     return this.usersService.deleteAccount(userId);
   }
 
+  /**
+   * POST /users/permanent-delete
+   * Permanently delete the user's account and all associated data.
+   * Requires the user's current password as a confirmation.
+   */
+  @Post('permanent-delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer définitivement le compte (RGPD)' })
+  @ApiResponse({ status: 200, description: 'Compte supprimé définitivement' })
+  async permanentlyDeleteAccount(
+    @CurrentUser('id') userId: string,
+    @Body() body: { password: string },
+  ) {
+    return this.usersService.permanentlyDeleteAccount(userId, body?.password);
+  }
+
+  /**
+   * GET /users/me/data-export
+   * Returns a full JSON export of the user's data (RGPD portability).
+   */
+  @Get('me/data-export')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Exporter toutes mes données (RGPD)' })
+  async exportMyData(@CurrentUser('id') userId: string) {
+    return this.usersService.exportMyData(userId);
+  }
+
   // ─── Super Admin routes ───
 
   /**

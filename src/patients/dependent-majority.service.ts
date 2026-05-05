@@ -27,16 +27,16 @@ export class DependentMajorityService {
   async handleDailyCheck() {
     await this.cronJobsService.runWithLogging(
       'dependent-majority-check',
-      CronJobTrigger.scheduled,
       () => this.notifyGuardiansOfMajority(),
+      CronJobTrigger.scheduled,
     );
   }
 
   async manualTrigger() {
     return this.cronJobsService.runWithLogging(
       'dependent-majority-check',
-      CronJobTrigger.manual,
       () => this.notifyGuardiansOfMajority(),
+      CronJobTrigger.manual,
     );
   }
 

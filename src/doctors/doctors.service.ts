@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   NotFoundException,
   ForbiddenException,
   ConflictException,
@@ -9,12 +10,16 @@ import { PrismaClient } from '@prisma/client';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { DoctorFilterDto } from './dto/doctor-filter.dto';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 
 @Injectable()
 export class DoctorsService {
   private readonly logger = new Logger(DoctorsService.name);
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly cloudinary: CloudinaryService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // FIND ALL (paginated, with filters)
@@ -552,5 +557,54 @@ export class DoctorsService {
     }
 
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ELECTRONIC SIGNATURE
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Upload an electronic signature image (typically a PNG drawn on a touch
+   * screen). Used to sign prescriptions so they are legally valid.
+   */
+  async uploadSignature(userId: string, file: any) {
+    const doctor = await this.prisma.doctor.findUnique({ where: { userId } });
+    if (!doctor) throw new NotFoundException('Profil médecin non trouvé');
+    if (!file) throw new BadRequestException('Aucun fichier fourni');
+
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/svg+xml',
+    ];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Format non supporté. Utilisez JPEG, PNG, WebP ou SVG.',
+      );
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      throw new BadRequestException('Le fichier ne doit pas dépasser 2 Mo');
+    }
+
+    const { url } = await this.cloudinary.uploadFile(file, 'doctor-signatures');
+    await this.prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { signatureUrl: url },
+    });
+    return { success: true, signatureUrl: url };
+  }
+
+  /**
+   * Remove the stored signature without re-uploading.
+   */
+  async removeSignature(userId: string) {
+    const doctor = await this.prisma.doctor.findUnique({ where: { userId } });
+    if (!doctor) throw new NotFoundException('Profil médecin non trouvé');
+    await this.prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { signatureUrl: null },
+    });
+    return { success: true };
   }
 }

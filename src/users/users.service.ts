@@ -600,6 +600,79 @@ export class UsersService {
   }
 
   // ---------------------------------------------------------------------------
+  // PERMANENTLY DELETE ACCOUNT (hard delete with password confirmation)
+  // ---------------------------------------------------------------------------
+  /**
+   * Permanently delete the user's account and all associated data. Requires
+   * the user's current password as a second factor. Cascading deletes wipe
+   * out all owned records (patient profile, consultations, prescriptions,
+   * lab results, etc.) thanks to the schema's onDelete: Cascade rules.
+   */
+  async permanentlyDeleteAccount(userId: string, password: string) {
+    if (!password) {
+      throw new BadRequestException('Mot de passe requis pour la suppression');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur non trouvé');
+
+    const bcrypt = await import('bcrypt');
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) throw new BadRequestException('Mot de passe incorrect');
+
+    // Hard delete — cascades through Patient, Doctor, Nurse, Subscriptions,
+    // Notifications, etc. via onDelete: Cascade in the Prisma schema.
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    return {
+      success: true,
+      message: 'Compte supprimé définitivement. Toutes vos données ont été effacées.',
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // EXPORT MY DATA (GDPR / RGPD compliance)
+  // ---------------------------------------------------------------------------
+  /**
+   * Return a JSON dump of every record the platform stores about this user.
+   * Mirrors the right-to-data-portability requirement of GDPR/RGPD.
+   */
+  async exportMyData(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        patient: {
+          include: {
+            consultations: { include: { prescriptions: { include: { items: true } } } },
+            prescriptions: { include: { items: true } },
+            labResults: { include: { items: true } },
+            vaccinations: true,
+            allergies: true,
+            medicalConditions: true,
+            children: { include: { vaccinations: true } },
+            appointments: true,
+            accessGrants: true,
+            emergencyContacts: true,
+          },
+        },
+        doctor: { include: { institutions: true } },
+        nurse: true,
+        notifications: true,
+        subscriptions: { include: { plan: true } },
+        payments: true,
+      },
+    });
+    if (!user) throw new NotFoundException('Utilisateur non trouvé');
+
+    // Strip the password hash from the export.
+    const { passwordHash, ...safeUser } = user as any;
+    return {
+      exportedAt: new Date().toISOString(),
+      user: safeUser,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // ADMIN: UPDATE USER (super_admin)
   // ---------------------------------------------------------------------------
   async adminUpdateUser(id: string, data: { isActive?: boolean; isBanned?: boolean }) {
