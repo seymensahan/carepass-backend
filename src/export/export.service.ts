@@ -38,15 +38,18 @@ export class ExportService {
   // ---------------------------------------------------------------------------
   // PDF helpers
   // ---------------------------------------------------------------------------
-  private createPdfBuffer(buildFn: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
+  private createPdfBuffer(
+    buildFn: (doc: PDFKit.PDFDocument) => void | Promise<void>,
+  ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50, size: 'A4' });
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
-      buildFn(doc);
-      doc.end();
+      Promise.resolve(buildFn(doc))
+        .then(() => doc.end())
+        .catch(reject);
     });
   }
 
@@ -440,7 +443,7 @@ export class ExportService {
       orderBy: { date: 'desc' },
     });
 
-    return this.createPdfBuffer((doc) => {
+    return this.createPdfBuffer(async (doc) => {
       // Header
       this.addPdfHeader(doc, 'Rapport de Consultation');
 
