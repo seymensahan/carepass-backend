@@ -329,6 +329,10 @@ export class SubscriptionsService {
   /**
    * Check and expire subscriptions past their endDate.
    * Called daily via a controller endpoint or interval.
+   *
+   * Also self-heals: any row marked 'expired' whose endDate is still in
+   * the future is restored to 'active' — this corrects rows that were
+   * prematurely stamped by an older buggy version of the renewal cron.
    */
   async expireSubscriptions() {
     const now = new Date();
@@ -345,45 +349,136 @@ export class SubscriptionsService {
       this.logger.log(`${expired.count} abonnement(s) expirés automatiquement`);
     }
 
-    return { expired: expired.count };
+    // Bulk-heal wrongly-expired rows (status=expired but endDate still in
+    // the future). This was caused by a prior version of the wallet
+    // renewal cron flipping subs at endDate-1day instead of endDate.
+    const healed = await this.prisma.subscription.updateMany({
+      where: {
+        status: 'expired',
+        endDate: { gte: now },
+      },
+      data: { status: 'active' },
+    });
+
+    if (healed.count > 0) {
+      this.logger.warn(
+        `${healed.count} abonnement(s) restaurés (étaient 'expired' mais endDate encore dans le futur)`,
+      );
+    }
+
+    return { expired: expired.count, healed: healed.count };
   }
 
   /**
    * Check subscription status for a specific user.
-   * Returns whether subscription is active, expired, or never existed.
+   *
+   * Priority: if the user has ANY truly-active subscription (status active
+   * AND endDate >= now), we return that one — even if an older expired row
+   * exists on the same account. This avoids false-positive "expired" gates
+   * when a sub got incorrectly stamped expired in DB (e.g. by a buggy
+   * renewal cron) while a valid one still exists.
+   *
+   * Fallback: if no active row exists, return the most recently created
+   * one (could be a recently expired sub the user needs to renew, or none).
    */
   async checkUserSubscriptionStatus(userId: string) {
-    const subscription = await this.prisma.subscription.findFirst({
+    const now = new Date();
+
+    // 1. Prefer any genuinely active subscription
+    const activeSub = await this.prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        endDate: { gte: now },
+      },
+      orderBy: { endDate: 'desc' },
+      include: { plan: true },
+    });
+
+    if (activeSub) {
+      return {
+        hasSubscription: true,
+        isExpired: false,
+        isActive: true,
+        subscription: {
+          id: activeSub.id,
+          status: activeSub.status,
+          startDate: activeSub.startDate,
+          endDate: activeSub.endDate,
+          plan: activeSub.plan,
+        },
+      };
+    }
+
+    // 2. No active sub. Look for a row whose endDate is still in the future
+    //    but whose status got wrongly stamped 'expired'. Self-heal it.
+    const wronglyExpired = await this.prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: 'expired',
+        endDate: { gte: now },
+      },
+      orderBy: { endDate: 'desc' },
+      include: { plan: true },
+    });
+
+    if (wronglyExpired) {
+      const healed = await this.prisma.subscription.update({
+        where: { id: wronglyExpired.id },
+        data: { status: 'active' },
+        include: { plan: true },
+      });
+      this.logger.warn(
+        `Self-healed subscription ${healed.id} for user ${userId}: was 'expired' but endDate ${healed.endDate.toISOString()} is still in the future`,
+      );
+      return {
+        hasSubscription: true,
+        isExpired: false,
+        isActive: true,
+        subscription: {
+          id: healed.id,
+          status: healed.status,
+          startDate: healed.startDate,
+          endDate: healed.endDate,
+          plan: healed.plan,
+        },
+      };
+    }
+
+    // 3. Fallback to the most recent subscription (could be expired or none)
+    const latest = await this.prisma.subscription.findFirst({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: { plan: true },
     });
 
-    if (!subscription) {
-      return { hasSubscription: false, isExpired: false, subscription: null };
+    if (!latest) {
+      return {
+        hasSubscription: false,
+        isExpired: false,
+        isActive: false,
+        subscription: null,
+      };
     }
 
-    const isExpired = subscription.status === 'expired' ||
-      (subscription.status === 'active' && new Date(subscription.endDate) < new Date());
-
-    // Auto-expire if still marked active but past endDate
-    if (subscription.status === 'active' && new Date(subscription.endDate) < new Date()) {
+    // Auto-expire if still marked active but past endDate (defensive)
+    if (latest.status === 'active' && new Date(latest.endDate) < now) {
       await this.prisma.subscription.update({
-        where: { id: subscription.id },
+        where: { id: latest.id },
         data: { status: 'expired' },
       });
     }
 
     return {
       hasSubscription: true,
-      isExpired,
-      isActive: subscription.status === 'active' && new Date(subscription.endDate) >= new Date(),
+      isExpired: true,
+      isActive: false,
       subscription: {
-        id: subscription.id,
-        status: subscription.status,
-        startDate: subscription.startDate,
-        endDate: subscription.endDate,
-        plan: subscription.plan,
+        id: latest.id,
+        status: latest.status,
+        startDate: latest.startDate,
+        endDate: latest.endDate,
+        plan: latest.plan,
       },
     };
   }

@@ -177,7 +177,15 @@ export class SubscriptionRenewalService {
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Find ALL active subscriptions expiring in the next 24 hours, any role
+    // Find ALL active subscriptions expiring in the next 24 hours, any role.
+    // We use this window to ATTEMPT wallet auto-renewal a day early for
+    // doctors, and to NOTIFY patients/institutions that they need to renew.
+    // We never flip status to 'expired' here while endDate is still in the
+    // future — that would lock users out a day before they actually expire
+    // (a real bug we hit in production: the gate modal appeared on accounts
+    // that still had time on their plan). Only the dedicated expiry job
+    // (subscriptions.service.expireSubscriptions) flips status, and only
+    // when endDate has actually passed.
     const expiringSubs = await this.prisma.subscription.findMany({
       where: {
         status: 'active',
@@ -196,6 +204,7 @@ export class SubscriptionRenewalService {
 
     for (const sub of expiringSubs) {
       const role = sub.user.role;
+      const isPastEndDate = new Date(sub.endDate) < now;
 
       // ───────────────────────────────────────────────────────────────────────
       // DOCTORS: try wallet auto-debit, extend on success
@@ -228,19 +237,27 @@ export class SubscriptionRenewalService {
 
           renewed++;
         } catch (error) {
-          await this.prisma.subscription.update({
-            where: { id: sub.id },
-            data: { status: 'expired' },
-          });
+          // Wallet debit failed. Only flip to 'expired' if endDate has
+          // already passed — otherwise the doctor still has grace time and
+          // will see the expiry once the dedicated job flips them naturally.
+          if (isPastEndDate) {
+            await this.prisma.subscription.update({
+              where: { id: sub.id },
+              data: { status: 'expired' },
+            });
+            expired++;
+          }
 
           this.logger.warn(
-            `Failed to renew doctor ${sub.user.email}: ${(error as Error).message}`,
+            `Failed to renew doctor ${sub.user.email}: ${(error as Error).message}${isPastEndDate ? ' — marked expired' : ' — grace period, will retry'}`,
           );
 
           await this.notificationsService
             .create(sub.userId, {
-              title: 'Abonnement expiré',
-              message: `Solde insuffisant (${currentPrice} FCFA requis). Rechargez votre portefeuille ou payez par Mobile Money.`,
+              title: isPastEndDate ? 'Abonnement expiré' : 'Renouvellement échoué',
+              message: isPastEndDate
+                ? `Solde insuffisant (${currentPrice} FCFA requis). Rechargez votre portefeuille ou payez par Mobile Money.`
+                : `Solde insuffisant (${currentPrice} FCFA requis) pour le renouvellement automatique. Rechargez avant la date d'échéance.`,
               type: 'error',
               link: '/doctor/wallet',
             })
@@ -252,16 +269,24 @@ export class SubscriptionRenewalService {
       }
 
       // ───────────────────────────────────────────────────────────────────────
-      // PATIENTS, INSTITUTION_ADMIN, etc.: mark expired + notify, no wallet
+      // PATIENTS, INSTITUTION_ADMIN, etc.: notify + only flip to 'expired'
+      // once endDate has actually passed. There is no wallet auto-debit for
+      // these roles, so a "soon to expire" pass is purely informational.
       // ───────────────────────────────────────────────────────────────────────
-      await this.prisma.subscription.update({
-        where: { id: sub.id },
-        data: { status: 'expired' },
-      });
-
-      this.logger.log(
-        `Expired subscription ${sub.id} for ${role} ${sub.user.email} (no auto-renew for this role)`,
-      );
+      if (isPastEndDate) {
+        await this.prisma.subscription.update({
+          where: { id: sub.id },
+          data: { status: 'expired' },
+        });
+        this.logger.log(
+          `Expired subscription ${sub.id} for ${role} ${sub.user.email} (endDate ${sub.endDate.toISOString()} < now)`,
+        );
+        expired++;
+      } else {
+        this.logger.log(
+          `Subscription ${sub.id} for ${role} ${sub.user.email} expires soon (${sub.endDate.toISOString()}) — notifying without status change`,
+        );
+      }
 
       const linkByRole: Record<string, string> = {
         patient: '/subscription',
@@ -270,15 +295,14 @@ export class SubscriptionRenewalService {
 
       await this.notificationsService
         .create(sub.userId, {
-          title: 'Abonnement expiré',
-          message:
-            'Votre abonnement CAREPASS a expiré. Renouvelez par Mobile Money pour continuer à utiliser la plateforme.',
-          type: 'error',
+          title: isPastEndDate ? 'Abonnement expiré' : 'Abonnement bientôt expiré',
+          message: isPastEndDate
+            ? 'Votre abonnement CAREPASS a expiré. Renouvelez par Mobile Money pour continuer à utiliser la plateforme.'
+            : 'Votre abonnement CAREPASS expire bientôt. Renouvelez par Mobile Money pour éviter une interruption de service.',
+          type: isPastEndDate ? 'error' : 'warning',
           link: linkByRole[role] ?? '/subscription',
         })
         .catch(() => {});
-
-      expired++;
     }
 
     // Shape compatible with CronJobsService.runWithLogging() — also keeps
