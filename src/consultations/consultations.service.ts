@@ -181,6 +181,11 @@ export class ConsultationsService {
         prescriptions: {
           include: {
             items: true,
+            doctor: {
+              include: {
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
           },
         },
       },

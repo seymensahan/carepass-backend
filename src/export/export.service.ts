@@ -53,61 +53,166 @@ export class ExportService {
     });
   }
 
+  // CARYPASS brand palette — kept in one place so every export uses the
+  // same blue/green family across headers, footers and section titles.
+  private readonly BRAND = {
+    primary: '#007bff',
+    primaryDark: '#0056b3',
+    accent: '#28a745',
+    text: '#212529',
+    muted: '#6c757d',
+    light: '#e7f1ff',
+    border: '#dee2e6',
+  } as const;
+
   private addPdfHeader(doc: PDFKit.PDFDocument, title: string) {
+    const pageWidth = doc.page.width;
+    const margin = 50;
+    const innerWidth = pageWidth - margin * 2;
+
+    // Top brand band — solid blue strip with the CARYPASS wordmark.
+    doc.save();
+    doc.rect(0, 0, pageWidth, 80).fill(this.BRAND.primary);
+    doc.restore();
+
     doc
-      .fontSize(20)
+      .fillColor('#ffffff')
       .font('Helvetica-Bold')
-      .text('CARYPASS', { align: 'center' })
-      .moveDown(0.3)
-      .fontSize(10)
+      .fontSize(24)
+      .text('CARYPASS', margin, 24, { width: innerWidth, align: 'left' })
       .font('Helvetica')
-      .text('Plateforme de sante numerique', { align: 'center' })
-      .moveDown(0.5)
-      .moveTo(50, doc.y)
-      .lineTo(545, doc.y)
-      .stroke()
-      .moveDown(0.5)
-      .fontSize(14)
+      .fontSize(9)
+      .text(
+        'Portail de sante numerique en Afrique',
+        margin,
+        52,
+        { width: innerWidth, align: 'left' },
+      );
+
+    // Date pill in the top-right corner.
+    const dateLabel = `Genere le ${new Date().toLocaleDateString('fr-FR')}`;
+    doc
+      .fillColor('#ffffff')
+      .font('Helvetica')
+      .fontSize(9)
+      .text(dateLabel, margin, 30, { width: innerWidth, align: 'right' });
+
+    // Document title block below the band.
+    doc
+      .fillColor(this.BRAND.text)
       .font('Helvetica-Bold')
-      .text(title)
-      .moveDown(0.5)
-      .fontSize(10)
+      .fontSize(16)
+      .text(title, margin, 100, { width: innerWidth });
+
+    // Thin accent underline beneath the title.
+    doc.save();
+    doc
+      .moveTo(margin, doc.y + 4)
+      .lineTo(margin + 60, doc.y + 4)
+      .lineWidth(2.5)
+      .strokeColor(this.BRAND.accent)
+      .stroke();
+    doc.restore();
+
+    doc.moveDown(1.5).fillColor(this.BRAND.text);
+  }
+
+  private addPdfFooter(doc: PDFKit.PDFDocument) {
+    const pageHeight = doc.page.height;
+    const pageWidth = doc.page.width;
+    const margin = 50;
+
+    doc.save();
+    doc
+      .moveTo(margin, pageHeight - 60)
+      .lineTo(pageWidth - margin, pageHeight - 60)
+      .lineWidth(0.5)
+      .strokeColor(this.BRAND.border)
+      .stroke();
+    doc.restore();
+
+    doc
+      .fillColor(this.BRAND.muted)
       .font('Helvetica')
-      .text(`Genere le : ${new Date().toLocaleDateString('fr-FR')}`)
-      .moveDown(1);
+      .fontSize(8)
+      .text(
+        'CARYPASS — https://carypass.com',
+        margin,
+        pageHeight - 50,
+        { width: pageWidth - margin * 2, align: 'center' },
+      )
+      .text(
+        'Document genere automatiquement. Ne remplace pas un avis medical professionnel.',
+        margin,
+        pageHeight - 38,
+        { width: pageWidth - margin * 2, align: 'center' },
+      );
+  }
+
+  private addSectionHeading(doc: PDFKit.PDFDocument, label: string) {
+    doc
+      .moveDown(0.6)
+      .fillColor(this.BRAND.primary)
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .text(label)
+      .fillColor(this.BRAND.text)
+      .moveDown(0.3);
   }
 
   private addPdfTable(doc: PDFKit.PDFDocument, headers: string[], rows: string[][], colWidths?: number[]) {
     const tableLeft = 50;
-    const defaultColWidth = (545 - 50) / headers.length;
+    const tableRight = 545;
+    const defaultColWidth = (tableRight - tableLeft) / headers.length;
     const widths = colWidths || headers.map(() => defaultColWidth);
-    const rowHeight = 20;
 
-    // Header row
-    let x = tableLeft;
-    doc.font('Helvetica-Bold').fontSize(9);
+    // Header row — light blue band (CARYPASS brand) with white-blue text.
+    const headerY = doc.y;
+    doc.save();
+    doc.rect(tableLeft, headerY - 2, tableRight - tableLeft, 18).fill(this.BRAND.light);
+    doc.restore();
+
+    let x = tableLeft + 4;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(this.BRAND.primaryDark);
     for (let i = 0; i < headers.length; i++) {
-      doc.text(headers[i], x, doc.y, { width: widths[i], continued: false });
+      doc.text(headers[i], x, headerY + 3, { width: widths[i] - 8, continued: false });
       x += widths[i];
     }
-    doc.moveDown(0.3);
-    doc.moveTo(tableLeft, doc.y).lineTo(545, doc.y).stroke();
+
+    doc.y = headerY + 18;
+    doc.save();
+    doc
+      .moveTo(tableLeft, doc.y)
+      .lineTo(tableRight, doc.y)
+      .lineWidth(0.5)
+      .strokeColor(this.BRAND.border)
+      .stroke();
+    doc.restore();
     doc.moveDown(0.3);
 
     // Data rows
-    doc.font('Helvetica').fontSize(8);
+    doc.font('Helvetica').fontSize(8).fillColor(this.BRAND.text);
     for (const row of rows) {
       if (doc.y > 750) {
         doc.addPage();
         this.addPdfHeader(doc, '(suite)');
       }
       const startY = doc.y;
-      x = tableLeft;
+      x = tableLeft + 4;
       for (let i = 0; i < row.length; i++) {
-        doc.text(row[i] || '', x, startY, { width: widths[i], lineBreak: false });
+        doc.text(row[i] || '', x, startY, { width: widths[i] - 8, lineBreak: false });
         x += widths[i];
       }
-      doc.moveDown(0.5);
+      doc.moveDown(0.7);
+      // Light row separator
+      doc.save();
+      doc
+        .moveTo(tableLeft, doc.y - 2)
+        .lineTo(tableRight, doc.y - 2)
+        .lineWidth(0.3)
+        .strokeColor(this.BRAND.border)
+        .stroke();
+      doc.restore();
     }
   }
 
@@ -448,13 +553,11 @@ export class ExportService {
       this.addPdfHeader(doc, 'Rapport de Consultation');
 
       // Patient info section
+      this.addSectionHeading(doc, 'Informations du Patient');
       doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .text('Informations du Patient')
-        .moveDown(0.3)
         .fontSize(10)
         .font('Helvetica')
+        .fillColor(this.BRAND.text)
         .text(`Nom : ${consultation.patient.user.firstName} ${consultation.patient.user.lastName}`)
         .text(`CaryPass ID : ${consultation.patient.carypassId}`)
         .text(`Email : ${consultation.patient.user.email || 'N/A'}`)
@@ -464,13 +567,11 @@ export class ExportService {
         .moveDown(1);
 
       // Consultation details
+      this.addSectionHeading(doc, 'Details de la Consultation');
       doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .text('Details de la Consultation')
-        .moveDown(0.3)
         .fontSize(10)
         .font('Helvetica')
+        .fillColor(this.BRAND.text)
         .text(`Date : ${consultation.date.toLocaleDateString('fr-FR')}`)
         .text(`Type : ${consultation.type}`)
         .text(`Statut : ${consultation.status}`)
@@ -501,11 +602,15 @@ export class ExportService {
 
       // Prescriptions
       if (consultation.prescriptions.length > 0) {
-        doc.moveDown(0.5);
-        doc.fontSize(12).font('Helvetica-Bold').text('Prescriptions').moveDown(0.3);
+        this.addSectionHeading(doc, 'Ordonnance');
 
         for (const prescription of consultation.prescriptions) {
-          doc.fontSize(10).font('Helvetica-Bold').text(`Prescription (${prescription.status})`).moveDown(0.2);
+          doc
+            .fontSize(10)
+            .font('Helvetica-Bold')
+            .fillColor(this.BRAND.text)
+            .text(`Prescription (${prescription.status})`)
+            .moveDown(0.2);
 
           if (prescription.notes) {
             doc.font('Helvetica').text(`Notes : ${prescription.notes}`).moveDown(0.2);
@@ -537,13 +642,13 @@ export class ExportService {
 
       // Lab results
       if (labResults.length > 0) {
-        doc.moveDown(0.5);
-        doc.fontSize(12).font('Helvetica-Bold').text('Resultats de Laboratoire').moveDown(0.3);
+        this.addSectionHeading(doc, 'Resultats de Laboratoire');
 
         for (const lr of labResults) {
           doc
             .fontSize(10)
             .font('Helvetica-Bold')
+            .fillColor(this.BRAND.text)
             .text(`${lr.title} (${lr.date.toLocaleDateString('fr-FR')}) - ${lr.status}`)
             .moveDown(0.2);
 
@@ -563,13 +668,8 @@ export class ExportService {
         }
       }
 
-      // Footer
-      doc
-        .moveDown(1)
-        .fontSize(8)
-        .font('Helvetica')
-        .text('Ce document a ete genere automatiquement par CARYPASS.', { align: 'center' })
-        .text('Il ne remplace pas un avis medical professionnel.', { align: 'center' });
+      // Footer — branded line at the bottom of every consultation PDF.
+      this.addPdfFooter(doc);
     });
   }
 
@@ -595,21 +695,25 @@ export class ExportService {
     const sealX = pageWidth - 230;
     const sealWidth = 180;
 
-    // Doctor identity block
+    // Doctor identity block — primary blue header line, then specialty
+    // and license in the standard text color.
     doc
       .fontSize(9)
       .font('Helvetica-Bold')
+      .fillColor(this.BRAND.primary)
       .text(`Dr. ${doctorUser.firstName} ${doctorUser.lastName}`, sealX, startY, {
         width: sealWidth,
         align: 'center',
       })
       .font('Helvetica')
       .fontSize(8)
+      .fillColor(this.BRAND.muted)
       .text(seal.specialty, sealX, doc.y, { width: sealWidth, align: 'center' })
       .text(`N° Ordre : ${seal.licenseNumber}`, sealX, doc.y, {
         width: sealWidth,
         align: 'center',
       })
+      .fillColor(this.BRAND.text)
       .moveDown(0.5);
 
     const imageUrl = seal.signatureUrl;
